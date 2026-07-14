@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Config / secrets — token must never reach the repo
+.env
+.env.*
+.env.local
+*.local
+config.json
+jira-tools.config.json
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
