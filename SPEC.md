@@ -97,6 +97,20 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
 **Zasada bezpieczeństwa zapisu:** narzędzia zapisu są rejestrowane w serwerze TYLKO gdy
 `JIRA_ALLOW_WRITE=true` w konfiguracji. Domyślnie serwer jest read-only.
 
+**Bezpieczniki zapisu (egzekwowane w kodzie serwera, nie w instrukcjach skilli):**
+
+1. **Jeden ticket na wywołanie** — `create_issue` nie przyjmuje tablic; masowe tworzenie
+   wymaga wielu jawnych, widocznych wywołań.
+2. **Budżet zapisu na sesję** — licznik w procesie serwera: domyślnie 10× `create_issue`
+   i 30 operacji zapisu łącznie. Po przekroczeniu każda operacja zwraca czytelną odmowę
+   (reset = restart serwera / `/reload-plugins`). Konfiguracja: pole `writeBudget`
+   (`{"creates": n, "total": m}`) lub env `JIRA_WRITE_BUDGET_CREATES` /
+   `JIRA_WRITE_BUDGET_TOTAL`. Cel: twardy stop dla niekontrolowanej pętli tworzenia.
+3. **Strażnik duplikatów** — przed utworzeniem `create_issue` szuka otwartego zadania
+   o tym samym (znormalizowanym) tytule w projekcie; trafienie ⇒ odmowa ze wskazaniem
+   istniejącego klucza, chyba że jawnie przekazano `allow_duplicate=true` (wyłącznie po
+   potwierdzeniu przez użytkownika).
+
 ### 4.3 Wymagania wspólne
 
 - **Paginacja:** `search_issues` obsługuje `startAt`; przy obcięciu wyników dopisz na końcu

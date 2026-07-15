@@ -82,7 +82,22 @@ export function loadConfig({ env = process.env, path = configPath() } = {}) {
     defaultProject: env.JIRA_DEFAULT_PROJECT || file.defaultProject || undefined,
     language: env.JIRA_LANG || file.language || 'pl',
     projects: typeof file.projects === 'object' && file.projects !== null ? file.projects : {},
+    writeBudget: {
+      creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
+      total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30,
+    },
   }
+}
+
+/**
+ * Parse a positive integer or return undefined.
+ *
+ * @param {unknown} value
+ * @returns {number|undefined}
+ */
+function positiveInt(value) {
+  const n = Number(value)
+  return Number.isInteger(n) && n > 0 ? n : undefined
 }
 
 /**

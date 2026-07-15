@@ -21104,6 +21104,17 @@ var EMPTY_COMPLETION_RESULT = {
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+var DEFAULT_STATUSES = [
+  "To Do",
+  "To Fix",
+  "In Progress",
+  "Code Review",
+  "Dev Done",
+  "On Hold",
+  "Ready for QA",
+  "QA",
+  "Done"
+];
 function configPath() {
   return join(homedir(), ".config", "jira-tools", "config.json");
 }
@@ -21131,7 +21142,22 @@ function loadConfig({ env = process.env, path = configPath() } = {}) {
     allowWrite: allowWriteRaw === true || allowWriteRaw === "true",
     defaultProject: env.JIRA_DEFAULT_PROJECT || file.defaultProject || void 0,
     language: env.JIRA_LANG || file.language || "pl",
-    projects: typeof file.projects === "object" && file.projects !== null ? file.projects : {}
+    projects: typeof file.projects === "object" && file.projects !== null ? file.projects : {},
+    writeBudget: {
+      creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
+      total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30
+    }
+  };
+}
+function positiveInt(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : void 0;
+}
+function getProjectProfile(config2, projectKey) {
+  const profile = config2?.projects?.[String(projectKey).toUpperCase()] ?? {};
+  return {
+    statuses: Array.isArray(profile.statuses) && profile.statuses.length > 0 ? profile.statuses : DEFAULT_STATUSES,
+    ...profile
   };
 }
 
@@ -21141,7 +21167,10 @@ __export(jira_client_exports, {
   DETAIL_FIELDS: () => DETAIL_FIELDS,
   JiraError: () => JiraError,
   LIST_FIELDS: () => LIST_FIELDS,
+  addComment: () => addComment,
+  createIssue: () => createIssue,
   debug: () => debug,
+  doTransition: () => doTransition,
   expandKeys: () => expandKeys,
   getActiveSprint: () => getActiveSprint,
   getBoardConfiguration: () => getBoardConfiguration,
@@ -21155,6 +21184,7 @@ __export(jira_client_exports, {
   listFields: () => listFields,
   listSprints: () => listSprints,
   listStatuses: () => listStatuses,
+  listTransitions: () => listTransitions,
   searchIssues: () => searchIssues
 });
 var LIST_FIELDS = ["summary", "status", "issuetype", "priority", "assignee", "labels", "updated"];
@@ -21336,6 +21366,150 @@ function getProject(config2, projectKey) {
 function getBoardConfiguration(config2, boardId) {
   return jiraFetch(config2, `/rest/agile/1.0/board/${boardId}/configuration`, { what: `konfiguracja boardu ${boardId}` });
 }
+function createIssue(config2, fields) {
+  return jiraFetch(config2, "/rest/api/2/issue", {
+    method: "POST",
+    body: { fields },
+    what: "tworzenie zadania"
+  });
+}
+function addComment(config2, key, body) {
+  return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}/comment`, {
+    method: "POST",
+    body: { body },
+    what: `komentarz do ${key}`
+  });
+}
+function listTransitions(config2, key) {
+  return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, {
+    what: `przej\u015Bcia statusu ${key}`
+  });
+}
+function doTransition(config2, key, transitionId) {
+  return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, {
+    method: "POST",
+    body: { transition: { id: String(transitionId) } },
+    what: `zmiana statusu ${key}`
+  });
+}
+
+// plugins/jira-tools/src/write-guard.mjs
+var DEFAULT_WRITE_BUDGET = { creates: 10, total: 30 };
+var counters = { creates: 0, total: 0 };
+function consumeWriteBudget(config2, kind) {
+  const budget = { ...DEFAULT_WRITE_BUDGET, ...config2?.writeBudget ?? {} };
+  const refuse = (used, limit, what) => {
+    throw new JiraError(
+      `Limit zapis\xF3w w tej sesji osi\u0105gni\u0119ty (${used}/${limit} \u2014 ${what}). To zabezpieczenie przed niekontrolowan\u0105 p\u0119tl\u0105 tworzenia. Je\u015Bli dzia\u0142asz celowo, zrestartuj serwer (/reload-plugins w Claude Code) i kontynuuj, albo podnie\u015B limit (config "writeBudget" lub env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL).`
+    );
+  };
+  if (counters.total >= budget.total) refuse(counters.total, budget.total, "wszystkie operacje zapisu");
+  if (kind === "create" && counters.creates >= budget.creates) {
+    refuse(counters.creates, budget.creates, "tworzenie zada\u0144");
+  }
+  counters.total += 1;
+  if (kind === "create") counters.creates += 1;
+}
+function normalizeSummary(summary) {
+  return String(summary ?? "").toLowerCase().replaceAll(/\s+/g, " ").trim();
+}
+function escapeJql(text) {
+  return text.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+async function findDuplicate(config2, client, project, summary) {
+  const wanted = normalizeSummary(summary);
+  if (!wanted) return null;
+  const jql = `project = ${project} AND summary ~ "${escapeJql(summary.trim())}" AND statusCategory != Done`;
+  const page = await client.searchIssues(config2, { jql, maxResults: 20 });
+  return page.issues.find((issue2) => normalizeSummary(issue2.fields?.summary) === wanted) ?? null;
+}
+
+// plugins/jira-tools/src/tools/add-comment.mjs
+var add_comment_default = {
+  name: "add_comment",
+  config: {
+    title: "Add comment (WRITE)",
+    description: "Add ONE comment to a Jira issue. Counts against the per-session write budget.",
+    inputSchema: {
+      key: external_exports.string().describe('Issue key, e.g. "PROJ-42"'),
+      body: external_exports.string().min(1).describe("Comment text")
+    }
+  },
+  /**
+   * @param {{key: string, body: string}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ key, body }, { config: config2, client }) {
+    const issueKey = key.trim().toUpperCase();
+    consumeWriteBudget(config2, "write");
+    await client.addComment(config2, issueKey, body);
+    return `Dodano komentarz do ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
+  }
+};
+
+// plugins/jira-tools/src/tools/create-issue.mjs
+async function resolveEpicField(config2, client, project) {
+  const fromProfile = getProjectProfile(config2, project).epicLinkField;
+  if (fromProfile) return fromProfile;
+  const fields = await client.listFields(config2);
+  const epicField = fields.find((f) => f.name === "Epic Link") ?? fields.find((f) => f.schema?.custom?.endsWith(":gh-epic-link"));
+  if (!epicField) {
+    throw new JiraError("Nie wykryto pola Epic Link \u2014 uruchom /jira-tools:jira-config dla projektu albo pomi\u0144 epic_key.");
+  }
+  return epicField.id;
+}
+var create_issue_default = {
+  name: "create_issue",
+  config: {
+    title: "Create issue (WRITE)",
+    description: "Create exactly ONE Jira issue and return its key + URL. NEVER call this in a loop \u2014 for a batch of tickets use the /jira-tools:create-task skill (mandatory dry-run + user confirmation). Server-side rails: refuses when an open issue with the same summary exists (unless allow_duplicate=true) and enforces a per-session write budget.",
+    inputSchema: {
+      project: external_exports.string().describe('Project key, e.g. "PROJ"'),
+      issue_type: external_exports.string().describe('Issue type name, e.g. "Task", "Bug", "Story"'),
+      summary: external_exports.string().min(5).describe("Issue title"),
+      description: external_exports.string().optional().describe("Issue description (Jira wiki markup or plain text)"),
+      components: external_exports.array(external_exports.string()).optional().describe('Component names, e.g. ["iOS"]'),
+      labels: external_exports.array(external_exports.string()).optional(),
+      assignee: external_exports.string().optional().describe("Jira username to assign"),
+      epic_key: external_exports.string().optional().describe("Epic to link the issue to"),
+      allow_duplicate: external_exports.boolean().optional().describe("Set true ONLY when the user explicitly confirmed creating a near-duplicate")
+    }
+  },
+  /**
+   * @param {object} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run(args, { config: config2, client }) {
+    const project = args.project.trim().toUpperCase();
+    const summary = args.summary.trim();
+    if (!args.allow_duplicate) {
+      const duplicate = await findDuplicate(config2, client, project, summary);
+      if (duplicate) {
+        throw new JiraError(
+          `Nie utworzono \u2014 w projekcie ${project} istnieje ju\u017C otwarte zadanie o tym tytule: ${duplicate.key} (\u201E${duplicate.fields?.summary}", status: ${duplicate.fields?.status?.name ?? "?"}). Je\u015Bli duplikat jest zamierzony i potwierdzony przez u\u017Cytkownika, wywo\u0142aj ponownie z allow_duplicate=true.`
+        );
+      }
+    }
+    const fields = {
+      project: { key: project },
+      issuetype: { name: args.issue_type.trim() },
+      summary
+    };
+    if (args.description) fields.description = args.description;
+    if (args.components?.length) fields.components = args.components.map((name) => ({ name }));
+    if (args.labels?.length) fields.labels = args.labels;
+    if (args.assignee) fields.assignee = { name: args.assignee };
+    if (args.epic_key) {
+      const epicField = await resolveEpicField(config2, client, project);
+      fields[epicField] = args.epic_key.trim().toUpperCase();
+    }
+    consumeWriteBudget(config2, "create");
+    const created = await client.createIssue(config2, fields);
+    return `Utworzono ${created.key} \u2014 ${config2.server}/browse/${created.key}`;
+  }
+};
 
 // plugins/jira-tools/src/format.mjs
 var SEPARATOR = "\u2500".repeat(60);
@@ -21480,6 +21654,39 @@ Dodatkowe pola:
 ${lines.join("\n")}`;
     }
     return text;
+  }
+};
+
+// plugins/jira-tools/src/tools/transition-issue.mjs
+var transition_issue_default = {
+  name: "transition_issue",
+  config: {
+    title: "Transition issue (WRITE)",
+    description: "Change the status of ONE issue by transition name (case-insensitive). When the name does not match, returns the list of currently available transitions. Counts against the per-session write budget.",
+    inputSchema: {
+      key: external_exports.string().describe('Issue key, e.g. "PROJ-42"'),
+      transition_name: external_exports.string().describe('Transition name, e.g. "In Progress", "Done"')
+    }
+  },
+  /**
+   * @param {{key: string, transition_name: string}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ key, transition_name }, { config: config2, client }) {
+    const issueKey = key.trim().toUpperCase();
+    const { transitions = [] } = await client.listTransitions(config2, issueKey);
+    const wanted = transition_name.trim().toLowerCase();
+    const match = transitions.find((t) => t.name?.toLowerCase() === wanted);
+    if (!match) {
+      const available = transitions.map((t) => `"${t.name}"`).join(", ") || "(brak dost\u0119pnych przej\u015B\u0107)";
+      throw new JiraError(
+        `Brak przej\u015Bcia "${transition_name}" dla ${issueKey}. Dost\u0119pne przej\u015Bcia: ${available}.`
+      );
+    }
+    consumeWriteBudget(config2, "write");
+    await client.doTransition(config2, issueKey, match.id);
+    return `${issueKey}: wykonano przej\u015Bcie "${match.name}"${match.to?.name ? ` \u2192 status: ${match.to.name}` : ""}.`;
   }
 };
 
@@ -21758,7 +21965,11 @@ var readTools = [
   get_current_user_default,
   get_project_config_default
 ];
-var writeTools = [];
+var writeTools = [
+  create_issue_default,
+  add_comment_default,
+  transition_issue_default
+];
 
 // plugins/jira-tools/src/server.mjs
 var NOT_CONFIGURED_MESSAGE = 'Jira nie jest jeszcze skonfigurowana. W Claude Code uruchom /jira-tools:jira-setup. Alternatywnie utw\xF3rz plik ~/.config/jira-tools/config.json z polami "server" i "token" (szczeg\xF3\u0142y: README pluginu jira-tools).';

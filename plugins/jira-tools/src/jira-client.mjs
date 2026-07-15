@@ -343,3 +343,59 @@ export function getProject(config, projectKey) {
 export function getBoardConfiguration(config, boardId) {
   return jiraFetch(config, `/rest/agile/1.0/board/${boardId}/configuration`, { what: `konfiguracja boardu ${boardId}` })
 }
+
+// --- write operations (Phase 2, registered only behind JIRA_ALLOW_WRITE) ----
+
+/**
+ * Create ONE issue. Pattern proven in references/jira_create_subtasks.mjs.
+ *
+ * @param {object} config
+ * @param {object} fields - Jira issue fields payload
+ * @returns {Promise<{key: string}>}
+ */
+export function createIssue(config, fields) {
+  return jiraFetch(config, '/rest/api/2/issue', {
+    method: 'POST', body: { fields }, what: 'tworzenie zadania',
+  })
+}
+
+/**
+ * Add a comment to an issue.
+ *
+ * @param {object} config
+ * @param {string} key
+ * @param {string} body - comment text
+ * @returns {Promise<object>}
+ */
+export function addComment(config, key, body) {
+  return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}/comment`, {
+    method: 'POST', body: { body }, what: `komentarz do ${key}`,
+  })
+}
+
+/**
+ * Available workflow transitions of an issue.
+ *
+ * @param {object} config
+ * @param {string} key
+ * @returns {Promise<{transitions: object[]}>}
+ */
+export function listTransitions(config, key) {
+  return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, {
+    what: `przejścia statusu ${key}`,
+  })
+}
+
+/**
+ * Execute a workflow transition (Jira answers 204).
+ *
+ * @param {object} config
+ * @param {string} key
+ * @param {string} transitionId
+ * @returns {Promise<null>}
+ */
+export function doTransition(config, key, transitionId) {
+  return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, {
+    method: 'POST', body: { transition: { id: String(transitionId) } }, what: `zmiana statusu ${key}`,
+  })
+}

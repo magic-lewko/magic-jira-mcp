@@ -12,27 +12,27 @@ Read-only domyślnie; narzędzia zapisu (Faza 2) włącza dopiero flaga `JIRA_AL
 
 1. Dodaj marketplace (z prywatnego repo albo ze ścieżki lokalnej):
 
-   ```
+   ```text
    /plugin marketplace add <URL-repo-git-albo-ścieżka-lokalna>
    ```
 
 2. Zainstaluj plugin:
 
-   ```
+   ```text
    /plugin install jira-tools@magic-jira-mcp
    ```
 
 3. Skonfiguruj połączenie (URL Jiry, PAT, język, domyślny projekt):
 
-   ```
+   ```text
    /jira-tools:jira-setup
    ```
 
-   Na końcu zobaczysz „Zalogowano jako …”.
+   Na końcu zobaczysz „Zalogowano jako …".
 
 4. (Zalecane) Zapisz profil swojego projektu — kolumny/statusy boardu, pole Epic Link, komponenty:
 
-   ```
+   ```text
    /jira-tools:jira-config TWÓJPROJEKT
    ```
 
@@ -94,6 +94,8 @@ Skille (`/jira-tools:…`) działają tylko w Claude Code; w Desktopie pytasz na
 `get_epic_status`, `get_issue_changelog` (historia statusów), `get_current_user`,
 `get_project_config` (profil projektu).
 
+**Narzędzia zapisu (tylko z `allowWrite: true`):** `create_issue`, `add_comment`, `transition_issue`.
+
 **Skille:**
 
 | Skill | Do czego |
@@ -104,27 +106,51 @@ Skille (`/jira-tools:…`) działają tylko w Claude Code; w Desktopie pytasz na
 | `/jira-tools:sprint-health [board]` | raport zdrowia aktywnego sprintu (5 sekcji) |
 | `/jira-tools:check-stories PROJ [sprint]` | audyt user stories (sprint / numer `[...]` w tytule) |
 | `/jira-tools:find-bug <opis>` | znajdź buga po opisie słownym, status + środowisko |
+| `/jira-tools:create-task <opis>` | (zapis) tickety per platforma, ZAWSZE z dry-runem |
 
-Poza skillami pytaj naturalnie: „które moje taski w PROJ zmieniły wczoraj status?”,
-„czy bug z licznikiem powiadomień jest już na UAT?” — Claude sam złoży JQL.
+Poza skillami pytaj naturalnie: „które moje taski w PROJ zmieniły wczoraj status?",
+„czy bug z licznikiem powiadomień jest już na UAT?" — Claude sam złoży JQL.
+
+## Włączanie zapisu (opcjonalne, domyślnie wyłączony)
+
+Zapis (`create_issue`, `add_comment`, `transition_issue` + skill `/jira-tools:create-task`)
+włącza się per użytkownik: `"allowWrite": true` w configu (albo env `JIRA_ALLOW_WRITE=true`),
+potem `/reload-plugins`. Bez flagi narzędzia zapisu w ogóle nie istnieją w serwerze.
+
+Wbudowane bezpieczniki (w kodzie serwera):
+
+- **jeden ticket na wywołanie** — brak API batchowego,
+- **budżet zapisu na sesję** — domyślnie 10 utworzeń / 30 operacji zapisu łącznie; po
+  przekroczeniu serwer odmawia aż do restartu (`/reload-plugins`). Zmiana limitu: pole
+  `"writeBudget": {"creates": 10, "total": 30}` w configu lub env
+  `JIRA_WRITE_BUDGET_CREATES` / `JIRA_WRITE_BUDGET_TOTAL`,
+- **strażnik duplikatów** — próba utworzenia ticketa o tytule istniejącego, otwartego
+  zadania w projekcie zostaje odrzucona ze wskazaniem klucza (świadome obejście:
+  `allow_duplicate=true`),
+- `/jira-tools:create-task` ZAWSZE pokazuje pełny podgląd (dry-run) i czeka na Twoje
+  potwierdzenie, zanim cokolwiek utworzy.
+
+**Zalecenie:** przy pytaniu Claude Code o uprawnienie dla `create_issue` nie wybieraj
+„always allow" — zatwierdzanie każdego utworzenia ręcznie to ostatnia warstwa ochrony.
+Testy zapisu wykonuj wyłącznie na sandboksie testowym, nigdy na projekcie produkcyjnym.
 
 ## Checklista testu end-to-end (na czystej instalacji)
 
 1. `claude` w dowolnym katalogu → `/plugin marketplace add <ścieżka/URL>`
 2. `/plugin install jira-tools@magic-jira-mcp`
-3. `/jira-tools:jira-setup` → „Zalogowano jako …”
+3. `/jira-tools:jira-setup` → „Zalogowano jako …"
 4. `/mcp` → serwer `jira` widoczny i connected
 5. `/jira-tools:get-tasks <PROJEKT>` → zwraca Twoje taski
-6. Pytanie naturalne: „które moje taski w `PROJEKT` zmieniły status wczoraj?”
+6. Pytanie naturalne: „które moje taski w `PROJEKT` zmieniły status wczoraj?"
 7. `/jira-tools:sprint-health` → raport z pięcioma sekcjami
 8. Po zmianach w kodzie: `npm run build` + `/reload-plugins` (SKILL.md łapie się na żywo, kod serwera i `.mcp.json` wymagają reloadu)
 
 ## Troubleshooting
 
 - **Serwer `jira` nie łączy się** → `/mcp` pokaże błąd. Najczęstsza przyczyna przy zmianach w kodzie: cokolwiek wypisane na **stdout** w serwerze (stdout = protokół MCP). Debug wyłącznie na stderr, włączany przez `JIRA_DEBUG=1`.
-- **401 / „token wygasł”** → wygeneruj nowy PAT (Jira → awatar → Personal Access Tokens) i odpal `/jira-tools:jira-setup` ponownie.
+- **401 / „token wygasł"** → wygeneruj nowy PAT (Jira → awatar → Personal Access Tokens) i odpal `/jira-tools:jira-setup` ponownie.
 - **Timeout** → sprawdź URL serwera i VPN.
-- **„Poprawka nie działa”** → kod serwera wymaga `npm run build` + `/reload-plugins`; sam `SKILL.md` przeładowuje się na żywo.
+- **„Poprawka nie działa"** → kod serwera wymaga `npm run build` + `/reload-plugins`; sam `SKILL.md` przeładowuje się na żywo.
 
 ## Dla developerów pluginu
 
