@@ -44,7 +44,7 @@ Monorepo = marketplace + plugin: the repo root is a plugin marketplace (`.claude
 
 ## Local testing workflow
 
-Install from a local path: `/plugin marketplace add <path-to-this-repo>`, then `/plugin install jira-tools@<marketplace-name>`. `SKILL.md` changes are picked up live, but changes to `.mcp.json` or server code require `/reload-plugins` (or a session restart) — don't mistake a stale server for a broken fix. If the server won't connect after a change, check for stray stdout writes first (`/mcp` shows errors).
+Install from a local path: `/plugin marketplace add <path-to-this-repo>`, then `/plugin install jira-tools@<marketplace-name>` — but always in a **separate test directory/session, never inside this repo itself** (a local-scope install here pollutes `.claude/settings.local.json`). `SKILL.md` changes are picked up live, but changes to `.mcp.json` or server code require `/reload-plugins` (or a session restart) — don't mistake a stale server for a broken fix. If the server won't connect after a change, check for stray stdout writes first (`/mcp` shows errors).
 
 ## Phasing
 
