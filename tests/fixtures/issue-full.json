@@ -1,0 +1,35 @@
+{
+  "key": "PROJ-42",
+  "fields": {
+    "summary": "[123] Login screen crashes on empty password",
+    "status": { "name": "In Progress", "statusCategory": { "key": "indeterminate" } },
+    "issuetype": { "name": "Bug", "subtask": false },
+    "priority": { "name": "High" },
+    "assignee": { "displayName": "Jan Kowalski" },
+    "reporter": { "displayName": "Anna Nowak" },
+    "created": "2026-07-01T09:15:00.000+0200",
+    "updated": "2026-07-10T16:40:00.000+0200",
+    "labels": ["UAT", "mobile"],
+    "components": [{ "name": "iOS" }, { "name": "Android" }],
+    "description": "Steps:\n1. Open login\n2. Leave password empty\n3. Tap submit\n\nExpected: validation error\nActual: crash",
+    "comment": {
+      "comments": [
+        {
+          "author": { "displayName": "Anna Nowak" },
+          "created": "2026-07-09T11:00:00.000+0200",
+          "body": "Reproduced on iOS 18.\nCrash log attached."
+        },
+        {
+          "author": { "displayName": "Jan Kowalski" },
+          "created": "2026-07-10T10:30:00.000+0200",
+          "body": "Fix in review."
+        }
+      ]
+    },
+    "attachment": [
+      { "filename": "crash.log", "content": "https://jira.example.pl/secure/attachment/10001/crash.log" }
+    ],
+    "parent": { "key": "PROJ-40", "fields": { "summary": "Login epic work" } },
+    "fixVersions": [{ "name": "1.4.0" }]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "magic-jira-mcp",
+  "description": "Private marketplace for the jira-tools plugin: self-hosted Jira Server MCP + team skills",
+  "owner": { "name": "magic-lewko" },
+  "plugins": [
+    {
+      "name": "jira-tools",
+      "source": "./plugins/jira-tools",
+      "description": "Jira Server (self-hosted) integration: MCP server + skills"
+    }
+  ]
+}

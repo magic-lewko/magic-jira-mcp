@@ -9,6 +9,9 @@ node_modules/
 config.json
 jira-tools.config.json
 
+# Claude Code local session settings (never shared)
+.claude/settings.local.json
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

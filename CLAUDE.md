@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Hard rules
 
 - **Never add Claude as co-author.** No `Co-Authored-By: Claude ...` trailers in commits, no "Generated with Claude Code" footers in PR bodies — anywhere in this repo.
+- **Never commit or push without the user's explicit decision.** Prepare changes, summarize the pending diff, and wait for the go-ahead; each approval covers only that one commit.
 - **SPEC.md is the source of truth.** Build exactly what it describes; when something is unclear, ask before implementing. Do not add features beyond the spec.
 - **Never write to stdout in MCP server code** (no `console.log`) — stdout is the stdio protocol transport and any stray write kills the connection. Debug output goes to stderr only, behind `JIRA_DEBUG=1`.
 - **Full anonymization.** No company-identifying data anywhere in the repo: no tokens, passwords, production Jira URL, company name, real production project keys, product names, or internal branch names. Use neutral `PROJ-n` keys and `https://jira.example.pl` in examples and tests. The only sanctioned real identifiers are the `DC` test sandbox names. Company-specific data enters only via user-local config or args files (git-ignored).
@@ -29,6 +30,10 @@ Monorepo = marketplace + plugin: the repo root is a plugin marketplace (`.claude
 - All HTTP goes through a single `jiraFetch(path, opts)`: auth, 30 s timeout, error mapping in one place (401 → token expired + how to generate a new PAT; 404 → "KEY not found"; other → status + first 300 chars of body). Never log the token.
 - `search_issues` paginates via `startAt`; on truncation append `"(pokazano X z Y — zawęź JQL lub zwiększ max_results)"`.
 - Code and comments in English; end-user-facing messages follow `JIRA_LANG` (pl/en).
+
+## Branching
+
+`develop` (day-to-day work) → `uat` (stage) → `main` (prod). Commit to `develop`; promotions to `uat`/`main` happen by merge on the user's call.
 
 ## Commands
 

@@ -58,6 +58,8 @@ Dwie grupy odbiorców:
 │   ├── jira_create_subtasks.mjs  # POST issue + dry-run/--apply, plan z JSON (wzorzec create_issue)
 │   ├── jira_label_updater.mjs    # GET+PUT labels bez duplikatów (wzorzec aktualizacji)
 │   └── jira_unify_names.mjs      # bezpieczny PUT: weryfikacja stanu live, mapa z JSON
+├── scripts/
+│   └── build.mjs                 # esbuild: bunduje src/ → servers/jira-mcp.mjs (npm run build)
 ├── tests/
 │   ├── unit/                     # testy z mockowanym fetch (node:test)
 │   └── integration/              # testy read-only na prawdziwej Jirze (opt-in przez env)
@@ -81,6 +83,8 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
 | `get_sprint_issues`   | `sprint_id` lub (`board_id` + `sprint_name`)                                                          | Taski sprintu, kompaktowo.                                                                                                                                                       |
 | `get_epic_status`     | `epic_key`                                                                                            | Zliczenie dzieci epica per status + lista otwartych. Pole Epic Link różni się per instancja — bierz z profilu projektu (§5.1) lub auto-wykryj przez `/rest/api/2/field`.         |
 | `get_issue_changelog` | `key`                                                                                                 | Historia zmian statusów z datami (potrzebne do "co zmieniło status na done wczoraj" i "bez ruchu 3 dni").                                                                        |
+| `get_current_user`    | —                                                                                                     | Weryfikacja połączenia i tokena: zalogowany użytkownik (`/rest/api/2/myself`). Finałowy test `/jira-setup` ("Zalogowano jako X").                                                |
+| `get_project_config`  | `project`, `board_id?`                                                                                | Metadane projektu pod profil (§5.1): boardy, kolumny→statusy, komponenty, typy zadań, auto-detekcja pola Epic Link. Zaplecze skilla `/jira-config`.                              |
 
 ### 4.2 Zapis (faza 2 — za flagą)
 
