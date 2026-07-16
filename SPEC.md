@@ -90,9 +90,10 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
 
 | Narzędzie          | Parametry                                                                                               | Opis                                                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `create_issue`     | `project`, `issue_type`, `summary`, `description`, `components[]`, `labels[]`, `assignee?`, `epic_key?` | Tworzy ticket. Zwraca klucz + URL.                                                                                        |
+| `create_issue`     | `project`, `issue_type`, `summary`, `description`, `components[]`, `labels[]`, `assignee?`, `epic_key?`, `sprint_id?`, `allow_duplicate?` | Tworzy JEDEN ticket. Zwraca klucz + URL. `sprint_id` (z `get_active_sprint`) umieszcza ticket w sprincie — bez niego ląduje w backlogu; pole Sprint/Epic Link z profilu lub auto-detekcji. |
 | `add_comment`      | `key`, `body`                                                                                           | Dodaje komentarz.                                                                                                         |
 | `transition_issue` | `key`, `transition_name`                                                                                | Zmiana statusu (najpierw pobierz dostępne przejścia, dopasuj po nazwie case-insensitive, przy braku — wylistuj dostępne). |
+| `assign_to_epic`   | `epic_key`, `keys[]` (zakresy `PROJ-98..111`, max 20)                                                   | Przypina istniejące zadania do epica (Agile API). Use case analityka: „stories z release'a bez epica → podepnij pod epic". Każde zadanie liczy się do budżetu sesji; wszystkie dotknięte projekty muszą mieć zgodę na zapis. |
 
 **Zasada bezpieczeństwa zapisu:** narzędzia zapisu są rejestrowane w serwerze TYLKO gdy
 `JIRA_ALLOW_WRITE=true` w konfiguracji. Domyślnie serwer jest read-only.
@@ -110,6 +111,15 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
    o tym samym (znormalizowanym) tytule w projekcie; trafienie ⇒ odmowa ze wskazaniem
    istniejącego klucza, chyba że jawnie przekazano `allow_duplicate=true` (wyłącznie po
    potwierdzeniu przez użytkownika).
+4. **Bezpiecznik per projekt (opt-in)** — nawet w trybie zapisu projekt jest zapisywalny
+   TYLKO gdy jego profil ma `"allowWrite": true` (sekcja `projects.KEY`) albo klucz widnieje
+   w `writeProjects` / env `JIRA_WRITE_PROJECTS`. Sprawdzane przy każdym wywołaniu (zmiana
+   działa bez restartu); projekt bez jawnej zgody pozostaje read-only. `/jira-setup` pyta
+   o tryb pracy (read-only/zapis) globalnie, `/jira-config` pyta o zgodę per projekt.
+5. **Globalna flaga sprawdzana też per wywołanie** — rejestracja narzędzi dzieje się przy
+   starcie serwera, więc wyłączenie `allowWrite` w configu odcina zapis natychmiast, nawet
+   zanim ktoś zrobi `/reload-plugins` (narzędzia mogą być jeszcze widoczne, ale każda
+   operacja zwraca odmowę).
 
 ### 4.3 Wymagania wspólne
 
@@ -153,6 +163,9 @@ nazwy statusów i pól:
       "boardName": "DC board",
       "statuses": ["To Do", "To Fix", "In Progress", "Code Review", "Dev Done", "On Hold", "Ready for QA", "QA", "Done"],
       "epicLinkField": "customfield_XXXXX",
+      "sprintField": "customfield_XXXXX",
+      "platforms": ["iOS", "Android", "Web", "Backend"],
+      "titleConvention": "[<Platforma>] <tytuł>",
       "components": ["Frontend", "Backend"],
       "issueTypes": ["Story", "Bug", "Task", "Sub-task"]
     }
@@ -193,8 +206,10 @@ konkretny, bo od niego zależy auto-wywoływanie przez model).
   Dni robocze = pon–pt, świąt nie uwzględniamy (np. w poniedziałek "3 dni robocze wstecz"
   sięga do piątku, czwartku i środy). Nazwy statusów bierz z profilu projektu (§5.1).
 - **`/check-stories <projekt> [sprint]`** — audyt user stories: brak przypisanego sprintu
-  lub brak numeru w nawiasie kwadratowym w tytule (regex `\[[^\]]+\]` — sama obecność,
-  bez walidacji poprawności numeru). Wynik: tabela KEY | problem.
+  lub brak numeru azurowego w tytule (regex `\[\d+\]` — nawias z cyframi, np.
+  `[642321] Missing parameters in the event…`; nawias bez cyfr jak `[F]`/`[iOS]` nie liczy
+  się jako numer i jest raportowany osobno; poprawności numeru nie walidujemy). Działa też
+  na jawnej liście kluczy (np. zakres release'a z Notion). Wynik: tabela KEY | problem.
 - **`/find-bug <opis słowny>`** — wyszukiwanie semantyczne: wyciągnij 2-4 słowa kluczowe
   (PL i EN!), `search_issues` z `text ~` po każdym wariancie, zbierz kandydatów, oceń
   dopasowanie, dla najlepszego podaj status + na jakim środowisku (fixVersions/labels/komentarze)
@@ -259,6 +274,10 @@ wolno wykonywać manualne testy zapisu (Faza 2); testy automatyczne pozostają r
 - **Faza 3 (poza tym repo, osobna decyzja):** integracja Notion→Jira, wykorzystanie
   serwera przez PM w Claude Desktop/Cowork (README ma zawierać sekcję konfiguracji
   dla Claude Desktop z przykładowym wpisem `mcpServers`).
+- **Backlog pomysłów (następne iteracje):** hook Claude Code (PreToolUse, dystrybuowany
+  w pluginie) blokujący automatyczną edycję pól `allowWrite` w
+  `~/.config/jira-tools/config.json` — zmiana bezpieczników tylko ręcznie przez człowieka;
+  agent nie może sam sobie włączyć zapisu.
 
 ## 10. Definition of Done
 

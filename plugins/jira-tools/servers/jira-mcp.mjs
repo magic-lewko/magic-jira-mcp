@@ -21143,6 +21143,7 @@ function loadConfig({ env = process.env, path = configPath() } = {}) {
     defaultProject: env.JIRA_DEFAULT_PROJECT || file.defaultProject || void 0,
     language: env.JIRA_LANG || file.language || "pl",
     projects: typeof file.projects === "object" && file.projects !== null ? file.projects : {},
+    writeProjects: parseProjectList(env.JIRA_WRITE_PROJECTS, file.writeProjects),
     writeBudget: {
       creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
       total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30
@@ -21152,6 +21153,12 @@ function loadConfig({ env = process.env, path = configPath() } = {}) {
 function positiveInt(value) {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : void 0;
+}
+function parseProjectList(envList, fileList) {
+  const fromEnv = String(envList ?? "").split(",");
+  const fromFile = Array.isArray(fileList) ? fileList : [];
+  const keys = [...fromEnv, ...fromFile].map((k) => String(k).trim().toUpperCase()).filter(Boolean);
+  return [...new Set(keys)];
 }
 function getProjectProfile(config2, projectKey) {
   const profile = config2?.projects?.[String(projectKey).toUpperCase()] ?? {};
@@ -21168,6 +21175,7 @@ __export(jira_client_exports, {
   JiraError: () => JiraError,
   LIST_FIELDS: () => LIST_FIELDS,
   addComment: () => addComment,
+  addIssuesToEpic: () => addIssuesToEpic,
   createIssue: () => createIssue,
   debug: () => debug,
   doTransition: () => doTransition,
@@ -21392,12 +21400,19 @@ function doTransition(config2, key, transitionId) {
     what: `zmiana statusu ${key}`
   });
 }
+function addIssuesToEpic(config2, epicKey, issueKeys) {
+  return jiraFetch(config2, `/rest/agile/1.0/epic/${encodeURIComponent(epicKey)}/issue`, {
+    method: "POST",
+    body: { issues: issueKeys },
+    what: `przypisanie zada\u0144 do epica ${epicKey}`
+  });
+}
 
 // plugins/jira-tools/src/write-guard.mjs
 var DEFAULT_WRITE_BUDGET = { creates: 10, total: 30 };
 var counters = { creates: 0, total: 0 };
 function consumeWriteBudget(config2, kind) {
-  const budget = { ...DEFAULT_WRITE_BUDGET, ...config2?.writeBudget ?? {} };
+  const budget = { ...DEFAULT_WRITE_BUDGET, ...config2?.writeBudget };
   const refuse = (used, limit, what) => {
     throw new JiraError(
       `Limit zapis\xF3w w tej sesji osi\u0105gni\u0119ty (${used}/${limit} \u2014 ${what}). To zabezpieczenie przed niekontrolowan\u0105 p\u0119tl\u0105 tworzenia. Je\u015Bli dzia\u0142asz celowo, zrestartuj serwer (/reload-plugins w Claude Code) i kontynuuj, albo podnie\u015B limit (config "writeBudget" lub env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL).`
@@ -21410,18 +21425,39 @@ function consumeWriteBudget(config2, kind) {
   counters.total += 1;
   if (kind === "create") counters.creates += 1;
 }
+function assertProjectWritable(config2, projectKey) {
+  if (config2?.allowWrite !== true) {
+    throw new JiraError(
+      "Tryb zapisu jest wy\u0142\u0105czony (allowWrite: false) \u2014 operacja odrzucona. Je\u015Bli narz\u0119dzia zapisu s\u0105 nadal widoczne, serwer dzia\u0142a na starej konfiguracji: /reload-plugins."
+    );
+  }
+  const key = String(projectKey).trim().toUpperCase();
+  const profileAllows = config2?.projects?.[key]?.allowWrite === true;
+  const listAllows = (config2?.writeProjects ?? []).includes(key);
+  if (profileAllows || listAllows) return;
+  throw new JiraError(
+    `Zapis do projektu ${key} nie jest w\u0142\u0105czony \u2014 to bezpiecznik per projekt. Aby \u015Bwiadomie go w\u0142\u0105czy\u0107, dopisz "allowWrite": true w sekcji projects.${key} pliku ~/.config/jira-tools/config.json (dzia\u0142a od razu, bez restartu) albo ustaw env JIRA_WRITE_PROJECTS=${key}.`
+  );
+}
 function normalizeSummary(summary) {
   return String(summary ?? "").toLowerCase().replaceAll(/\s+/g, " ").trim();
 }
-function escapeJql(text) {
-  return text.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+function jqlTextOperand(summary) {
+  return String(summary).replaceAll(/[+\-&|!(){}[\]^"~*?:\\/]/g, " ").replaceAll(/\s+/g, " ").trim();
 }
 async function findDuplicate(config2, client, project, summary) {
   const wanted = normalizeSummary(summary);
   if (!wanted) return null;
-  const jql = `project = ${project} AND summary ~ "${escapeJql(summary.trim())}" AND statusCategory != Done`;
-  const page = await client.searchIssues(config2, { jql, maxResults: 20 });
-  return page.issues.find((issue2) => normalizeSummary(issue2.fields?.summary) === wanted) ?? null;
+  const operand = jqlTextOperand(summary);
+  if (!operand) return null;
+  const jql = `project = ${project} AND summary ~ "${operand}" AND statusCategory != Done`;
+  try {
+    const page = await client.searchIssues(config2, { jql, maxResults: 20 });
+    return page.issues.find((issue2) => normalizeSummary(issue2.fields?.summary) === wanted) ?? null;
+  } catch (err) {
+    debug("duplicate check failed, proceeding without it:", err?.message);
+    return null;
+  }
 }
 
 // plugins/jira-tools/src/tools/add-comment.mjs
@@ -21442,23 +21478,60 @@ var add_comment_default = {
    */
   async run({ key, body }, { config: config2, client }) {
     const issueKey = key.trim().toUpperCase();
+    assertProjectWritable(config2, issueKey.split("-")[0]);
     consumeWriteBudget(config2, "write");
     await client.addComment(config2, issueKey, body);
     return `Dodano komentarz do ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
   }
 };
 
+// plugins/jira-tools/src/tools/assign-to-epic.mjs
+var MAX_KEYS = 20;
+var assign_to_epic_default = {
+  name: "assign_to_epic",
+  config: {
+    title: "Assign issues to epic (WRITE)",
+    description: `Link existing issues to an epic (Agile API). Accepts keys and inclusive ranges ("PROJ-98..111"), max ${MAX_KEYS} per call. Present the resolved list to the user for confirmation BEFORE calling. Each assigned issue counts against the per-session write budget; all affected projects must have writes enabled.`,
+    inputSchema: {
+      epic_key: external_exports.string().describe('Target epic key, e.g. "PROJ-200"'),
+      keys: external_exports.array(external_exports.string()).min(1).describe('Issue keys and/or ranges to assign, e.g. ["PROJ-101", "PROJ-105..110"]')
+    }
+  },
+  /**
+   * @param {{epic_key: string, keys: string[]}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ epic_key, keys }, { config: config2, client }) {
+    const epic = epic_key.trim().toUpperCase();
+    const expanded = expandKeys(keys);
+    if (expanded.length === 0) {
+      throw new JiraError("Podaj co najmniej jeden klucz zadania (obs\u0142ugiwane zakresy: PROJ-98..111).");
+    }
+    if (expanded.length > MAX_KEYS) {
+      throw new JiraError(`Za du\u017Co zada\u0144 naraz (${expanded.length}, limit ${MAX_KEYS}). Podziel na mniejsze partie.`);
+    }
+    const projects = new Set([epic, ...expanded].map((k) => k.split("-")[0]));
+    for (const project of projects) assertProjectWritable(config2, project);
+    for (let i = 0; i < expanded.length; i++) consumeWriteBudget(config2, "write");
+    await client.addIssuesToEpic(config2, epic, expanded);
+    return `Przypisano ${expanded.length} zada\u0144 do epica ${epic}: ${expanded.join(", ")} \u2014 ${config2.server}/browse/${epic}`;
+  }
+};
+
 // plugins/jira-tools/src/tools/create-issue.mjs
-async function resolveEpicField(config2, client, project) {
-  const fromProfile = getProjectProfile(config2, project).epicLinkField;
+async function resolveField(config2, client, project, { profileKey, fieldName, customSuffix }) {
+  const fromProfile = getProjectProfile(config2, project)[profileKey];
   if (fromProfile) return fromProfile;
   const fields = await client.listFields(config2);
-  const epicField = fields.find((f) => f.name === "Epic Link") ?? fields.find((f) => f.schema?.custom?.endsWith(":gh-epic-link"));
-  if (!epicField) {
-    throw new JiraError("Nie wykryto pola Epic Link \u2014 uruchom /jira-tools:jira-config dla projektu albo pomi\u0144 epic_key.");
+  const field = fields.find((f) => f.name === fieldName) ?? fields.find((f) => f.schema?.custom?.endsWith(customSuffix));
+  if (!field) {
+    throw new JiraError(`Nie wykryto pola ${fieldName} \u2014 uruchom /jira-tools:jira-config dla projektu albo pomi\u0144 ten parametr.`);
   }
-  return epicField.id;
+  return field.id;
 }
+var EPIC_FIELD = { profileKey: "epicLinkField", fieldName: "Epic Link", customSuffix: ":gh-epic-link" };
+var SPRINT_FIELD = { profileKey: "sprintField", fieldName: "Sprint", customSuffix: ":gh-sprint" };
 var create_issue_default = {
   name: "create_issue",
   config: {
@@ -21473,6 +21546,7 @@ var create_issue_default = {
       labels: external_exports.array(external_exports.string()).optional(),
       assignee: external_exports.string().optional().describe("Jira username to assign"),
       epic_key: external_exports.string().optional().describe("Epic to link the issue to"),
+      sprint_id: external_exports.number().int().optional().describe("Sprint id to place the issue in (find it via get_active_sprint); omit for backlog"),
       allow_duplicate: external_exports.boolean().optional().describe("Set true ONLY when the user explicitly confirmed creating a near-duplicate")
     }
   },
@@ -21484,6 +21558,7 @@ var create_issue_default = {
   async run(args, { config: config2, client }) {
     const project = args.project.trim().toUpperCase();
     const summary = args.summary.trim();
+    assertProjectWritable(config2, project);
     if (!args.allow_duplicate) {
       const duplicate = await findDuplicate(config2, client, project, summary);
       if (duplicate) {
@@ -21502,8 +21577,12 @@ var create_issue_default = {
     if (args.labels?.length) fields.labels = args.labels;
     if (args.assignee) fields.assignee = { name: args.assignee };
     if (args.epic_key) {
-      const epicField = await resolveEpicField(config2, client, project);
+      const epicField = await resolveField(config2, client, project, EPIC_FIELD);
       fields[epicField] = args.epic_key.trim().toUpperCase();
+    }
+    if (args.sprint_id !== void 0) {
+      const sprintField = await resolveField(config2, client, project, SPRINT_FIELD);
+      fields[sprintField] = args.sprint_id;
     }
     consumeWriteBudget(config2, "create");
     const created = await client.createIssue(config2, fields);
@@ -21675,6 +21754,7 @@ var transition_issue_default = {
    */
   async run({ key, transition_name }, { config: config2, client }) {
     const issueKey = key.trim().toUpperCase();
+    assertProjectWritable(config2, issueKey.split("-")[0]);
     const { transitions = [] } = await client.listTransitions(config2, issueKey);
     const wanted = transition_name.trim().toLowerCase();
     const match = transitions.find((t) => t.name?.toLowerCase() === wanted);
@@ -21686,17 +21766,18 @@ var transition_issue_default = {
     }
     consumeWriteBudget(config2, "write");
     await client.doTransition(config2, issueKey, match.id);
-    return `${issueKey}: wykonano przej\u015Bcie "${match.name}"${match.to?.name ? ` \u2192 status: ${match.to.name}` : ""}.`;
+    const target = match.to?.name ? ` \u2192 status: ${match.to.name}` : "";
+    return `${issueKey}: wykonano przej\u015Bcie "${match.name}"${target}.`;
   }
 };
 
 // plugins/jira-tools/src/tools/get-issue.mjs
-var MAX_KEYS = 20;
+var MAX_KEYS2 = 20;
 var get_issue_default = {
   name: "get_issue",
   config: {
     title: "Get issue detail",
-    description: `Full detail of one or more issues: description, comments (author + date), attachments (names + URLs), components, labels, fixVersions, epic/parent. Accepts single keys and inclusive ranges: "PROJ-98..111" or "PROJ-98..PROJ-111". Max ${MAX_KEYS} issues per call.`,
+    description: `Full detail of one or more issues: description, comments (author + date), attachments (names + URLs), components, labels, fixVersions, epic/parent. Accepts single keys and inclusive ranges: "PROJ-98..111" or "PROJ-98..PROJ-111". Max ${MAX_KEYS2} issues per call.`,
     inputSchema: {
       key: external_exports.string().optional().describe('Single issue key or range, e.g. "PROJ-42" or "PROJ-98..111"'),
       keys: external_exports.array(external_exports.string()).optional().describe("Multiple keys and/or ranges")
@@ -21712,8 +21793,8 @@ var get_issue_default = {
     if (expanded.length === 0) {
       throw new JiraError('Podaj klucz zadania w parametrze "key" lub list\u0119 w "keys" (obs\u0142ugiwane zakresy: PROJ-98..111).');
     }
-    if (expanded.length > MAX_KEYS) {
-      throw new JiraError(`Za du\u017Co zada\u0144 naraz (${expanded.length}, limit ${MAX_KEYS}). Zaw\u0119\u017A zakres lub podziel na kilka wywo\u0142a\u0144.`);
+    if (expanded.length > MAX_KEYS2) {
+      throw new JiraError(`Za du\u017Co zada\u0144 naraz (${expanded.length}, limit ${MAX_KEYS2}). Zaw\u0119\u017A zakres lub podziel na kilka wywo\u0142a\u0144.`);
     }
     const results = await Promise.allSettled(expanded.map((k) => client.getIssue(config2, k)));
     const issues = [];
@@ -21885,11 +21966,39 @@ var get_current_user_default = {
 };
 
 // plugins/jira-tools/src/tools/get-project-config.mjs
+function findCustomField(fields, fieldName, customSuffix) {
+  return fields.find((f) => f.name === fieldName) ?? fields.find((f) => f.schema?.custom?.endsWith(customSuffix));
+}
+function selectBoard(boards, boardId, projectKey) {
+  if (boardId !== void 0) {
+    return { board: boards.find((b) => b.id === boardId) ?? { id: boardId, name: `(board ${boardId})` } };
+  }
+  if (boards.length === 1) return { board: boards[0] };
+  if (boards.length === 0) return { board: null };
+  const list = boards.map((b) => `- ${b.id}: ${b.name} (${b.type})`).join("\n");
+  return { prompt: `Projekt ${projectKey} ma ${boards.length} board\xF3w \u2014 wywo\u0142aj ponownie z board_id, wybieraj\u0105c w\u0142a\u015Bciwy:
+${list}` };
+}
+async function collectBoardStatuses(config2, client, boardId) {
+  const [boardConfig, allStatuses] = await Promise.all([
+    client.getBoardConfiguration(config2, boardId),
+    client.listStatuses(config2)
+  ]);
+  const statusName = new Map(allStatuses.map((s) => [String(s.id), s.name]));
+  const statuses = [];
+  for (const column of boardConfig.columnConfig?.columns ?? []) {
+    for (const s of column.statuses ?? []) {
+      const name = statusName.get(String(s.id));
+      if (name && !statuses.includes(name)) statuses.push(name);
+    }
+  }
+  return statuses;
+}
 var get_project_config_default = {
   name: "get_project_config",
   config: {
     title: "Get project configuration",
-    description: "Collect project metadata for a config profile: Agile boards, board columns with their statuses (in column order), components, issue types and the auto-detected Epic Link field id. Returns a ready-to-save JSON profile for ~/.config/jira-tools/config.json. When the project has several boards, call again with board_id to pick one.",
+    description: "Collect project metadata for a config profile: Agile boards, board columns with their statuses (in column order), components, issue types and the auto-detected Epic Link / Sprint field ids. Returns a ready-to-save JSON profile for ~/.config/jira-tools/config.json. When the project has several boards, call again with board_id to pick one.",
     inputSchema: {
       project: external_exports.string().describe('Project key, e.g. "PROJ"'),
       board_id: external_exports.number().int().optional().describe("Board id to use when the project has several boards")
@@ -21907,35 +22016,17 @@ var get_project_config_default = {
       client.listBoards(config2, { project: key }),
       client.listFields(config2)
     ]);
-    let board = null;
-    if (board_id !== void 0) {
-      board = boards.find((b) => b.id === board_id) ?? { id: board_id, name: `(board ${board_id})` };
-    } else if (boards.length === 1) {
-      board = boards[0];
-    } else if (boards.length > 1) {
-      const list = boards.map((b) => `- ${b.id}: ${b.name} (${b.type})`).join("\n");
-      return `Projekt ${key} ma ${boards.length} board\xF3w \u2014 wywo\u0142aj ponownie z board_id, wybieraj\u0105c w\u0142a\u015Bciwy:
-${list}`;
-    }
-    let statuses = [];
-    if (board) {
-      const [boardConfig, allStatuses] = await Promise.all([
-        client.getBoardConfiguration(config2, board.id),
-        client.listStatuses(config2)
-      ]);
-      const statusName = new Map(allStatuses.map((s) => [String(s.id), s.name]));
-      for (const column of boardConfig.columnConfig?.columns ?? []) {
-        for (const s of column.statuses ?? []) {
-          const name = statusName.get(String(s.id));
-          if (name && !statuses.includes(name)) statuses.push(name);
-        }
-      }
-    }
-    const epicField = fields.find((f) => f.name === "Epic Link") ?? fields.find((f) => f.schema?.custom?.endsWith(":gh-epic-link"));
+    const selection = selectBoard(boards, board_id, key);
+    if ("prompt" in selection) return selection.prompt;
+    const { board } = selection;
+    const statuses = board ? await collectBoardStatuses(config2, client, board.id) : [];
+    const epicField = findCustomField(fields, "Epic Link", ":gh-epic-link");
+    const sprintField = findCustomField(fields, "Sprint", ":gh-sprint");
     const profile = {
       ...board ? { boardId: board.id, boardName: board.name } : {},
       ...statuses.length ? { statuses } : {},
       ...epicField ? { epicLinkField: epicField.id } : {},
+      ...sprintField ? { sprintField: sprintField.id } : {},
       components: (proj.components ?? []).map((c) => c.name),
       issueTypes: (proj.issueTypes ?? []).map((t) => t.name)
     };
@@ -21944,6 +22035,7 @@ ${list}`;
       board ? `Board: ${board.name} (id ${board.id})` : "Board: nie znaleziono boardu Agile.",
       statuses.length ? `Statusy (kolejno\u015B\u0107 kolumn): ${statuses.join(" \u2192 ")}` : "Statusy: brak konfiguracji kolumn.",
       `Pole Epic Link: ${epicField ? epicField.id : "nie wykryto"}`,
+      `Pole Sprint: ${sprintField ? sprintField.id : "nie wykryto"}`,
       "",
       "Do zapisania w ~/.config/jira-tools/config.json pod kluczem projects." + key + ":",
       "```json",
@@ -21968,7 +22060,8 @@ var readTools = [
 var writeTools = [
   create_issue_default,
   add_comment_default,
-  transition_issue_default
+  transition_issue_default,
+  assign_to_epic_default
 ];
 
 // plugins/jira-tools/src/server.mjs
@@ -22001,7 +22094,7 @@ function registerTools(server, { getConfig = () => loadConfig(), client = jira_c
   return server;
 }
 function createServer(deps = {}) {
-  const server = new McpServer({ name: "jira", version: "0.1.0" });
+  const server = new McpServer({ name: "jira", version: "0.2.0" });
   registerTools(server, deps);
   return server;
 }

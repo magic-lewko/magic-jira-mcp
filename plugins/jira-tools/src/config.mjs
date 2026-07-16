@@ -82,6 +82,7 @@ export function loadConfig({ env = process.env, path = configPath() } = {}) {
     defaultProject: env.JIRA_DEFAULT_PROJECT || file.defaultProject || undefined,
     language: env.JIRA_LANG || file.language || 'pl',
     projects: typeof file.projects === 'object' && file.projects !== null ? file.projects : {},
+    writeProjects: parseProjectList(env.JIRA_WRITE_PROJECTS, file.writeProjects),
     writeBudget: {
       creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
       total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30,
@@ -98,6 +99,21 @@ export function loadConfig({ env = process.env, path = configPath() } = {}) {
 function positiveInt(value) {
   const n = Number(value)
   return Number.isInteger(n) && n > 0 ? n : undefined
+}
+
+/**
+ * Merge project keys allowed to write from env (comma list) and config file
+ * (array). Uppercased, deduplicated.
+ *
+ * @param {string|undefined} envList - e.g. "DC,PROJ"
+ * @param {unknown} fileList - e.g. ["DC"]
+ * @returns {string[]}
+ */
+function parseProjectList(envList, fileList) {
+  const fromEnv = String(envList ?? '').split(',')
+  const fromFile = Array.isArray(fileList) ? fileList : []
+  const keys = [...fromEnv, ...fromFile].map((k) => String(k).trim().toUpperCase()).filter(Boolean)
+  return [...new Set(keys)]
 }
 
 /**

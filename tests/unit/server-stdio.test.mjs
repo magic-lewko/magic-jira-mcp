@@ -16,7 +16,14 @@ const BUNDLE = join(root, 'plugins', 'jira-tools', 'servers', 'jira-mcp.mjs')
  */
 async function handshake(entry) {
   const child = spawn(process.execPath, [entry], {
-    env: { ...process.env, JIRA_SERVER: 'https://jira.example.pl', JIRA_TOKEN: 'test-token' },
+    env: {
+      ...process.env,
+      JIRA_SERVER: 'https://jira.example.pl',
+      JIRA_TOKEN: 'test-token',
+      // Explicit read-only: env beats any config file on the developer machine,
+      // so the "write tools absent" assertion stays deterministic.
+      JIRA_ALLOW_WRITE: 'false',
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
 

@@ -10,6 +10,7 @@ const CONFIG = {
   token: 't',
   allowWrite: true,
   projects: { PROJ: { epicLinkField: 'customfield_10008' } },
+  writeProjects: ['PROJ'],
   writeBudget: { creates: 10, total: 30 },
 }
 
@@ -29,12 +30,13 @@ function setup({ client = {}, config = CONFIG } = {}) {
 // --- registration gate --------------------------------------------------------
 
 test('real write tools registered only with allowWrite=true', () => {
+  const WRITE_TOOL_NAMES = ['create_issue', 'add_comment', 'transition_issue', 'assign_to_epic']
   const withWrite = setup()
-  for (const name of ['create_issue', 'add_comment', 'transition_issue']) {
+  for (const name of WRITE_TOOL_NAMES) {
     assert.ok(withWrite.has(name), `${name} should be registered`)
   }
   const readOnly = setup({ config: { ...CONFIG, allowWrite: false } })
-  for (const name of ['create_issue', 'add_comment', 'transition_issue']) {
+  for (const name of WRITE_TOOL_NAMES) {
     assert.equal(readOnly.has(name), false, `${name} must be absent in read-only mode`)
   }
 })
@@ -108,6 +110,52 @@ test('create_issue: refuses an open duplicate and returns the existing key', asy
   assert.equal(posted, false, 'must not POST when a duplicate exists')
 })
 
+test('create_issue: bracketed titles survive the duplicate check (Lucene specials sanitized)', async () => {
+  let jqlUsed = null
+  const tools = setup({
+    client: {
+      searchIssues: async (_config, { jql }) => {
+        jqlUsed = jql
+        return { issues: [{ key: 'PROJ-9', fields: { summary: '[iOS] Wylogowanie użytkownika', status: { name: 'To Do' } } }], total: 1, startAt: 0 }
+      },
+      createIssue: async () => ({ key: 'PROJ-999' }),
+    },
+  })
+  const result = await tools.get('create_issue').handler({
+    project: 'PROJ', issue_type: 'Task', summary: '[iOS] Wylogowanie użytkownika',
+  })
+  assert.ok(!jqlUsed.includes('['), `JQL operand must not contain "[", got: ${jqlUsed}`)
+  assert.equal(result.isError, true, 'exact bracketed duplicate must still be detected')
+  assert.match(result.content[0].text, /PROJ-9/)
+})
+
+test('create_issue: a failing duplicate CHECK does not block creation', async () => {
+  const tools = setup({
+    client: {
+      searchIssues: async () => { throw new JiraError('Jira zwróciła błąd 400: range query incorrect') },
+      createIssue: async () => ({ key: 'PROJ-999' }),
+    },
+  })
+  const result = await tools.get('create_issue').handler({
+    project: 'PROJ', issue_type: 'Task', summary: 'Zupełnie nowy temat',
+  })
+  assert.equal(result.isError, undefined)
+  assert.match(result.content[0].text, /PROJ-999/)
+})
+
+test('create_issue: sprint_id lands in the Sprint field from the profile', async () => {
+  let sent = null
+  const tools = setup({
+    config: { ...CONFIG, projects: { PROJ: { sprintField: 'customfield_10020', allowWrite: true } } },
+    client: { createIssue: async (_config, fields) => { sent = fields; return { key: 'PROJ-100' } } },
+  })
+  const result = await tools.get('create_issue').handler({
+    project: 'PROJ', issue_type: 'Task', summary: 'Ticket w sprincie', sprint_id: 1451,
+  })
+  assert.equal(result.isError, undefined)
+  assert.equal(sent.customfield_10020, 1451)
+})
+
 test('create_issue: allow_duplicate=true bypasses the duplicate guard', async () => {
   const tools = setup({
     client: {
@@ -120,6 +168,71 @@ test('create_issue: allow_duplicate=true bypasses the duplicate guard', async ()
   })
   assert.equal(result.isError, undefined)
   assert.match(result.content[0].text, /PROJ-999/)
+})
+
+// --- per-project write opt-in ---------------------------------------------------
+
+test('global gate re-checked per call: flipping allowWrite to false blocks a running server', async () => {
+  let current = CONFIG
+  const tools = new Map()
+  const server = { registerTool: (name, cfg, handler) => tools.set(name, { cfg, handler }) }
+  registerTools(server, {
+    getConfig: () => current,
+    client: { ...NO_DUPLICATES, createIssue: async () => ({ key: 'PROJ-1' }) },
+  })
+  assert.ok(tools.has('create_issue'), 'registered while allowWrite was true')
+
+  current = { ...CONFIG, allowWrite: false }
+  const result = await tools.get('create_issue').handler({
+    project: 'PROJ', issue_type: 'Task', summary: 'Brand new work item',
+  })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /Tryb zapisu jest wyłączony/)
+})
+
+test('per-project gate: project without opt-in is refused even in write mode', async () => {
+  let posted = false
+  const tools = setup({
+    config: { ...CONFIG, writeProjects: [] },
+    client: { createIssue: async () => { posted = true; return { key: 'PROJ-1' } } },
+  })
+  const result = await tools.get('create_issue').handler({
+    project: 'PROJ', issue_type: 'Task', summary: 'Brand new work item',
+  })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /Zapis do projektu PROJ nie jest włączony/)
+  assert.equal(posted, false)
+})
+
+test('per-project gate: profile allowWrite=true unlocks the project', async () => {
+  const tools = setup({
+    config: { ...CONFIG, writeProjects: [], projects: { PROJ: { allowWrite: true } } },
+    client: { createIssue: async () => ({ key: 'PROJ-2' }) },
+  })
+  const result = await tools.get('create_issue').handler({
+    project: 'PROJ', issue_type: 'Task', summary: 'Brand new work item',
+  })
+  assert.equal(result.isError, undefined)
+})
+
+test('per-project gate: add_comment and transition derive the project from the key', async () => {
+  const tools = setup({
+    config: { ...CONFIG, writeProjects: ['PROJ'] },
+    client: {
+      addComment: async () => ({}),
+      listTransitions: async () => ({ transitions: [{ id: '1', name: 'Done' }] }),
+      doTransition: async () => null,
+    },
+  })
+  const comment = await tools.get('add_comment').handler({ key: 'OTHER-5', body: 'x' })
+  assert.equal(comment.isError, true)
+  assert.match(comment.content[0].text, /Zapis do projektu OTHER nie jest włączony/)
+
+  const transition = await tools.get('transition_issue').handler({ key: 'OTHER-5', transition_name: 'Done' })
+  assert.equal(transition.isError, true)
+
+  const allowed = await tools.get('add_comment').handler({ key: 'PROJ-5', body: 'x' })
+  assert.equal(allowed.isError, undefined)
 })
 
 // --- session write budget -------------------------------------------------------
@@ -152,6 +265,57 @@ test('budget: total limit covers comments and transitions too', () => {
 test('budget: defaults applied when config has none', () => {
   for (let i = 0; i < DEFAULT_WRITE_BUDGET.creates; i++) consumeWriteBudget({}, 'create')
   assert.throws(() => consumeWriteBudget({}, 'create'), /10\/10/)
+})
+
+// --- assign_to_epic --------------------------------------------------------------
+
+test('assign_to_epic: expands ranges and posts the full list to the epic', async () => {
+  let sent = null
+  const tools = setup({
+    client: { addIssuesToEpic: async (_config, epic, issues) => { sent = { epic, issues }; return null } },
+  })
+  const result = await tools.get('assign_to_epic').handler({
+    epic_key: 'proj-200', keys: ['PROJ-101', 'proj-105..107'],
+  })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(sent, { epic: 'PROJ-200', issues: ['PROJ-101', 'PROJ-105', 'PROJ-106', 'PROJ-107'] })
+  assert.match(result.content[0].text, /Przypisano 4 zadań do epica PROJ-200/)
+})
+
+test('assign_to_epic: refuses when any affected project lacks the write opt-in', async () => {
+  let posted = false
+  const tools = setup({
+    client: { addIssuesToEpic: async () => { posted = true; return null } },
+  })
+  const result = await tools.get('assign_to_epic').handler({
+    epic_key: 'PROJ-200', keys: ['OTHER-1'],
+  })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /Zapis do projektu OTHER nie jest włączony/)
+  assert.equal(posted, false)
+})
+
+test('assign_to_epic: every issue consumes the write budget before the POST', async () => {
+  let posted = false
+  const tools = setup({
+    config: { ...CONFIG, writeBudget: { creates: 10, total: 3 } },
+    client: { addIssuesToEpic: async () => { posted = true; return null } },
+  })
+  const result = await tools.get('assign_to_epic').handler({
+    epic_key: 'PROJ-200', keys: ['PROJ-101..110'],
+  })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /Limit zapisów/)
+  assert.equal(posted, false, 'budget must stop the call before any HTTP')
+})
+
+test('assign_to_epic: caps the number of keys per call', async () => {
+  const tools = setup({ client: { addIssuesToEpic: async () => null } })
+  const result = await tools.get('assign_to_epic').handler({
+    epic_key: 'PROJ-200', keys: ['PROJ-1..30'],
+  })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /limit 20/)
 })
 
 // --- add_comment ---------------------------------------------------------------

@@ -94,7 +94,7 @@ Skille (`/jira-tools:…`) działają tylko w Claude Code; w Desktopie pytasz na
 `get_epic_status`, `get_issue_changelog` (historia statusów), `get_current_user`,
 `get_project_config` (profil projektu).
 
-**Narzędzia zapisu (tylko z `allowWrite: true`):** `create_issue`, `add_comment`, `transition_issue`.
+**Narzędzia zapisu (tylko z `allowWrite: true` + zgoda per projekt):** `create_issue`, `add_comment`, `transition_issue`, `assign_to_epic`.
 
 **Skille:**
 
@@ -111,6 +111,9 @@ Skille (`/jira-tools:…`) działają tylko w Claude Code; w Desktopie pytasz na
 Poza skillami pytaj naturalnie: „które moje taski w PROJ zmieniły wczoraj status?",
 „czy bug z licznikiem powiadomień jest już na UAT?" — Claude sam złoży JQL.
 
+**Pełny katalog use case'ów z przykładowymi promptami** (ściąga dla PM/analityka/deva):
+[docs/use-cases.md](docs/use-cases.md).
+
 ## Włączanie zapisu (opcjonalne, domyślnie wyłączony)
 
 Zapis (`create_issue`, `add_comment`, `transition_issue` + skill `/jira-tools:create-task`)
@@ -119,6 +122,11 @@ potem `/reload-plugins`. Bez flagi narzędzia zapisu w ogóle nie istnieją w se
 
 Wbudowane bezpieczniki (w kodzie serwera):
 
+- **bezpiecznik per projekt (opt-in)** — nawet w trybie zapisu projekt można zapisywać
+  TYLKO, gdy jego profil ma `"allowWrite": true` (`projects.KEY` w configu; pyta o to
+  `/jira-tools:jira-config`) albo klucz jest w `writeProjects` / env `JIRA_WRITE_PROJECTS`.
+  Działa od razu, bez restartu — projekty produkcyjne zostają read-only, dopóki ktoś
+  świadomie ich nie odblokuje,
 - **jeden ticket na wywołanie** — brak API batchowego,
 - **budżet zapisu na sesję** — domyślnie 10 utworzeń / 30 operacji zapisu łącznie; po
   przekroczeniu serwer odmawia aż do restartu (`/reload-plugins`). Zmiana limitu: pole

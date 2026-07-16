@@ -399,3 +399,17 @@ export function doTransition(config, key, transitionId) {
     method: 'POST', body: { transition: { id: String(transitionId) } }, what: `zmiana statusu ${key}`,
   })
 }
+
+/**
+ * Move issues into an epic (Agile API, Jira answers 204; max 50 keys per call).
+ *
+ * @param {object} config
+ * @param {string} epicKey
+ * @param {string[]} issueKeys
+ * @returns {Promise<null>}
+ */
+export function addIssuesToEpic(config, epicKey, issueKeys) {
+  return jiraFetch(config, `/rest/agile/1.0/epic/${encodeURIComponent(epicKey)}/issue`, {
+    method: 'POST', body: { issues: issueKeys }, what: `przypisanie zadań do epica ${epicKey}`,
+  })
+}

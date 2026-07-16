@@ -7,6 +7,7 @@
  */
 
 import addComment from './add-comment.mjs'
+import assignToEpic from './assign-to-epic.mjs'
 import createIssue from './create-issue.mjs'
 import searchIssues from './search-issues.mjs'
 import transitionIssue from './transition-issue.mjs'
@@ -37,4 +38,5 @@ export const writeTools = [
   createIssue,
   addComment,
   transitionIssue,
+  assignToEpic,
 ]

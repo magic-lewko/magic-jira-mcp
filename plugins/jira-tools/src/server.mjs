@@ -81,7 +81,7 @@ export function registerTools(
  * @returns {McpServer}
  */
 export function createServer(deps = {}) {
-  const server = new McpServer({ name: 'jira', version: '0.1.0' })
+  const server = new McpServer({ name: 'jira', version: '0.2.0' })
   registerTools(server, deps)
   return server
 }

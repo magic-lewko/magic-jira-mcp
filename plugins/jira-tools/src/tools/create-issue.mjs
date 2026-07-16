@@ -1,29 +1,33 @@
 import { z } from 'zod'
 import { JiraError } from '../jira-client.mjs'
 import { getProjectProfile } from '../config.mjs'
-import { consumeWriteBudget, findDuplicate } from '../write-guard.mjs'
+import { assertProjectWritable, consumeWriteBudget, findDuplicate } from '../write-guard.mjs'
 
 /**
- * Resolve the Epic Link custom field id: project profile first, then
- * discovery via /rest/api/2/field. No caching — creates are rare and the
- * profile is the fast path.
+ * Resolve a Jira Server custom field id (Epic Link, Sprint): project profile
+ * first, then discovery via /rest/api/2/field. No caching — creates are rare
+ * and the profile is the fast path.
  *
  * @param {object} config
  * @param {object} client
  * @param {string} project
+ * @param {{profileKey: string, fieldName: string, customSuffix: string}} spec
  * @returns {Promise<string>}
  */
-async function resolveEpicField(config, client, project) {
-  const fromProfile = getProjectProfile(config, project).epicLinkField
+async function resolveField(config, client, project, { profileKey, fieldName, customSuffix }) {
+  const fromProfile = getProjectProfile(config, project)[profileKey]
   if (fromProfile) return fromProfile
   const fields = await client.listFields(config)
-  const epicField = fields.find((f) => f.name === 'Epic Link')
-    ?? fields.find((f) => f.schema?.custom?.endsWith(':gh-epic-link'))
-  if (!epicField) {
-    throw new JiraError('Nie wykryto pola Epic Link — uruchom /jira-tools:jira-config dla projektu albo pomiń epic_key.')
+  const field = fields.find((f) => f.name === fieldName)
+    ?? fields.find((f) => f.schema?.custom?.endsWith(customSuffix))
+  if (!field) {
+    throw new JiraError(`Nie wykryto pola ${fieldName} — uruchom /jira-tools:jira-config dla projektu albo pomiń ten parametr.`)
   }
-  return epicField.id
+  return field.id
 }
+
+const EPIC_FIELD = { profileKey: 'epicLinkField', fieldName: 'Epic Link', customSuffix: ':gh-epic-link' }
+const SPRINT_FIELD = { profileKey: 'sprintField', fieldName: 'Sprint', customSuffix: ':gh-sprint' }
 
 /**
  * WRITE tool. Registered only behind JIRA_ALLOW_WRITE=true. Hard rails:
@@ -47,6 +51,8 @@ export default {
       labels: z.array(z.string()).optional(),
       assignee: z.string().optional().describe('Jira username to assign'),
       epic_key: z.string().optional().describe('Epic to link the issue to'),
+      sprint_id: z.number().int().optional()
+        .describe('Sprint id to place the issue in (find it via get_active_sprint); omit for backlog'),
       allow_duplicate: z.boolean().optional()
         .describe('Set true ONLY when the user explicitly confirmed creating a near-duplicate'),
     },
@@ -60,6 +66,8 @@ export default {
   async run(args, { config, client }) {
     const project = args.project.trim().toUpperCase()
     const summary = args.summary.trim()
+
+    assertProjectWritable(config, project)
 
     if (!args.allow_duplicate) {
       const duplicate = await findDuplicate(config, client, project, summary)
@@ -82,8 +90,12 @@ export default {
     if (args.labels?.length) fields.labels = args.labels
     if (args.assignee) fields.assignee = { name: args.assignee }
     if (args.epic_key) {
-      const epicField = await resolveEpicField(config, client, project)
+      const epicField = await resolveField(config, client, project, EPIC_FIELD)
       fields[epicField] = args.epic_key.trim().toUpperCase()
+    }
+    if (args.sprint_id !== undefined) {
+      const sprintField = await resolveField(config, client, project, SPRINT_FIELD)
+      fields[sprintField] = args.sprint_id
     }
 
     consumeWriteBudget(config, 'create')

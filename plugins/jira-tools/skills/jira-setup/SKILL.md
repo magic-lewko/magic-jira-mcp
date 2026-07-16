@@ -12,6 +12,9 @@ Guide the user through configuring the Jira connection. Respond in the user's la
    - Personal Access Token. Tell them how to generate one: Jira → click your avatar (top right) → **Personal Access Tokens** → **Create token** (no expiry or long expiry recommended). Ask them to paste the token.
    - Preferred language for generated ticket content: `pl` or `en` (default `pl`).
    - Default project key (optional, e.g. `PROJ`).
+   - **Work mode: read-only (recommended default) or with write access?** Explain in one
+     sentence: write mode adds create/comment/transition tools, and even then each project
+     must additionally be opted in for writes during `/jira-config` (per-project safety switch).
 
 2. **Write the config file** to `~/.config/jira-tools/config.json` (Windows: `%USERPROFILE%\.config\jira-tools\config.json`). Create the directory if missing. Merge with existing content if the file already exists (do not drop an existing `projects` section). Shape:
 
@@ -24,6 +27,9 @@ Guide the user through configuring the Jira connection. Respond in the user's la
      "allowWrite": false
    }
    ```
+
+   `allowWrite` reflects the user's work-mode answer (`false` for read-only). Remind them
+   that changing it later requires `/reload-plugins`.
 
 3. **Restrict permissions** (POSIX only): `chmod 600 ~/.config/jira-tools/config.json`. On Windows skip this step silently.
 

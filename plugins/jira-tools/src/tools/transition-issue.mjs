@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { JiraError } from '../jira-client.mjs'
-import { consumeWriteBudget } from '../write-guard.mjs'
+import { assertProjectWritable, consumeWriteBudget } from '../write-guard.mjs'
 
 /**
  * WRITE tool. Registered only behind JIRA_ALLOW_WRITE=true.
@@ -27,6 +27,7 @@ export default {
    */
   async run({ key, transition_name }, { config, client }) {
     const issueKey = key.trim().toUpperCase()
+    assertProjectWritable(config, issueKey.split('-')[0])
     const { transitions = [] } = await client.listTransitions(config, issueKey)
 
     const wanted = transition_name.trim().toLowerCase()
@@ -40,6 +41,7 @@ export default {
 
     consumeWriteBudget(config, 'write')
     await client.doTransition(config, issueKey, match.id)
-    return `${issueKey}: wykonano przejście "${match.name}"${match.to?.name ? ` → status: ${match.to.name}` : ''}.`
+    const target = match.to?.name ? ` → status: ${match.to.name}` : ''
+    return `${issueKey}: wykonano przejście "${match.name}"${target}.`
   },
 }

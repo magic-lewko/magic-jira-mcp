@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { consumeWriteBudget } from '../write-guard.mjs'
+import { assertProjectWritable, consumeWriteBudget } from '../write-guard.mjs'
 
 /** WRITE tool. Registered only behind JIRA_ALLOW_WRITE=true. */
 export default {
@@ -20,6 +20,7 @@ export default {
    */
   async run({ key, body }, { config, client }) {
     const issueKey = key.trim().toUpperCase()
+    assertProjectWritable(config, issueKey.split('-')[0])
     consumeWriteBudget(config, 'write')
     await client.addComment(config, issueKey, body)
     return `Dodano komentarz do ${issueKey} — ${config.server}/browse/${issueKey}`
