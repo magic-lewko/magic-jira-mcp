@@ -3,40 +3,44 @@
 Serwer MCP + skille integrujące self-hosted **Jira Server** (REST API v2, token PAT).
 Read-only domyślnie; narzędzia zapisu (Faza 2) włącza dopiero flaga `JIRA_ALLOW_WRITE=true`.
 
-## Wymagania
+## Zanim zaczniesz (obie ścieżki)
 
-- Node.js >= 20 w `PATH`
-- Dostęp do firmowej Jiry + własny Personal Access Token (PAT)
+| Potrzebujesz | Jak sprawdzić / zdobyć |
+| --- | --- |
+| Node.js >= 20 | terminal: `node -v` (brak → [nodejs.org](https://nodejs.org), wersja LTS) |
+| dostęp do firmowej Jiry | otwórz Jirę w przeglądarce (VPN, jeśli wymagany) |
+| własny token PAT | Jira → **awatar (prawy górny róg)** → **Personal Access Tokens** → **Create token** → skopiuj (pokaże się tylko raz) |
 
-## Instalacja w Claude Code (< 10 minut)
+## Szybki start — dev (Claude Code, ~5 min)
 
-1. Dodaj marketplace (z prywatnego repo albo ze ścieżki lokalnej):
+1. Dodaj źródło pluginu (URL prywatnego repo albo ścieżka lokalna):
 
    ```text
-   /plugin marketplace add <URL-repo-git-albo-ścieżka-lokalna>
+   /plugin marketplace add <URL-repo-albo-ścieżka>
    ```
 
-2. Zainstaluj plugin:
+2. Zainstaluj:
 
    ```text
    /plugin install jira-tools@magic-jira-mcp
    ```
 
-3. Skonfiguruj połączenie (URL Jiry, PAT, język, domyślny projekt):
+3. Skonfiguruj — skill poprowadzi Cię przez URL, token, język i tryb pracy:
 
    ```text
    /jira-tools:jira-setup
    ```
 
-   Na końcu zobaczysz „Zalogowano jako …".
+   ✅ Kryterium sukcesu: „**Zalogowano jako …**" z Twoim nazwiskiem.
 
-4. (Zalecane) Zapisz profil swojego projektu — kolumny/statusy boardu, pole Epic Link, komponenty:
+4. Zapisz profil swojego projektu (kolumny, pole Epic Link, konwencje zespołu):
 
    ```text
    /jira-tools:jira-config TWÓJPROJEKT
    ```
 
-5. Sprawdź `/mcp` — serwer `jira` powinien być widoczny i połączony.
+5. Pierwszy strzał: `pokaż moje taski w TWÓJPROJEKT`.
+   Pełna lista możliwości: [docs/use-cases.md](docs/use-cases.md).
 
 ## Konfiguracja ręczna (bez skilla)
 
@@ -65,27 +69,45 @@ Na macOS/Linux nadaj prawa `chmod 600`. Zamiast pliku możesz użyć zmiennych �
 (`JIRA_SERVER`, `JIRA_TOKEN`, `JIRA_ALLOW_WRITE`, `JIRA_DEFAULT_PROJECT`, `JIRA_LANG`) — env wygrywa z plikiem.
 **Token nigdy nie trafia do repo.**
 
-## Claude Desktop (PM / analitycy)
+## Szybki start — PM / analityk (Claude Desktop, ~10 min)
 
-Ten sam serwer działa w Claude Desktop. W konfiguracji Desktopa (Settings → Developer → Edit Config) dodaj:
+Nie potrzebujesz Claude Code ani terminala do codziennej pracy — tylko jednorazowej konfiguracji:
 
-```json
-{
-  "mcpServers": {
-    "jira": {
-      "command": "node",
-      "args": ["C:/ścieżka/do/repo/plugins/jira-tools/servers/jira-mcp.mjs"],
-      "env": {
-        "JIRA_SERVER": "https://jira.example.pl",
-        "JIRA_TOKEN": "<twój PAT>"
-      }
-    }
-  }
-}
-```
+1. **Pobierz pliki pluginu** w stałe miejsce na dysku (nie na Pulpit), np. `C:\narzedzia\magic-jira-mcp`
+   — `git clone <URL-repo>` albo ZIP z repo (Code → Download ZIP → rozpakuj).
 
-Zamiast `env` możesz użyć pliku `~/.config/jira-tools/config.json` jak wyżej — wtedy sekcję `env` pomiń.
-Skille (`/jira-tools:…`) działają tylko w Claude Code; w Desktopie pytasz naturalnym językiem, a Claude używa narzędzi serwera.
+2. **Otwórz konfigurację Claude Desktop**: Claude Desktop → **Settings → Developer → Edit Config**
+   (otworzy się plik `claude_desktop_config.json`).
+
+3. **Wklej wpis serwera** (popraw ścieżkę z kroku 1 — ukośniki `/`, nie `\` — oraz URL Jiry i token):
+
+   ```json
+   {
+     "mcpServers": {
+       "jira": {
+         "command": "node",
+         "args": ["C:/narzedzia/magic-jira-mcp/plugins/jira-tools/servers/jira-mcp.mjs"],
+         "env": {
+           "JIRA_SERVER": "https://jira.example.pl",
+           "JIRA_TOKEN": "<twój PAT>"
+         }
+       }
+     }
+   }
+   ```
+
+   Jeśli plik ma już sekcję `mcpServers`, dopisz do niej tylko blok `"jira": { … }`.
+
+4. **Zrestartuj Claude Desktop** (całkiem zamknij i uruchom ponownie).
+
+5. ✅ **Test**: zapytaj w nowej rozmowie „kim jestem w Jirze?" — odpowiedź „Zalogowano jako …" = działa.
+   Potem np. „zrób raport zdrowia aktualnego sprintu w TWÓJPROJEKT".
+
+W Desktopie nie ma komend `/…` — pytasz naturalnym językiem, wszystkie przykłady:
+[docs/use-cases.md](docs/use-cases.md).
+
+Najczęstsze potknięcia: ścieżka z `\` zamiast `/` (krok 3) · brak restartu (krok 4) ·
+brak Node.js (`node -v` w terminalu) · wygasły token (wygeneruj nowy PAT).
 
 ## Co dostajesz
 

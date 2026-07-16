@@ -12,10 +12,12 @@ Format: `<project> [sprint]` — project falls back to `defaultProject` from the
 
 2. Check each story for exactly two problems:
    - **Brak sprintu** — find them directly with a second query: `project = <PROJECT> AND issuetype = Story AND sprint is EMPTY` (skip this check when the user scoped the audit to one sprint).
-   - **Brak numeru w tytule** — the title must contain a NUMERIC bracketed reference matching
-     `\[\d+\]` (an Azure work-item number, e.g. `[642321] Missing parameters in the event…`).
-     Brackets with non-numeric content (`[F]`, `[iOS]`) do NOT count — report those separately
-     as "nawias jest, ale bez numeru". Do NOT validate whether the number itself is correct.
+   - **Brak numeru w tytule** — the title must contain an Azure work-item reference matching
+     `\[\d{6,}\]` (6+ digits, e.g. `[642321] Missing parameters in the event…`); when the
+     project profile defines `storyNumberPattern`, use that regex instead. Brackets that do
+     NOT match — `[F]`, `[iOS]`, `[2024]`, `[42]` — do not count; report them separately as
+     "nawias jest, ale nie jest to numer zgłoszenia". Do NOT validate whether the number
+     itself exists in Azure.
 
    The audit also works on an explicit list of stories (e.g. release scope pasted from Notion):
    `issuekey in (PROJ-101, PROJ-105, ...)` instead of the project/sprint query.

@@ -206,10 +206,12 @@ konkretny, bo od niego zależy auto-wywoływanie przez model).
   Dni robocze = pon–pt, świąt nie uwzględniamy (np. w poniedziałek "3 dni robocze wstecz"
   sięga do piątku, czwartku i środy). Nazwy statusów bierz z profilu projektu (§5.1).
 - **`/check-stories <projekt> [sprint]`** — audyt user stories: brak przypisanego sprintu
-  lub brak numeru azurowego w tytule (regex `\[\d+\]` — nawias z cyframi, np.
-  `[642321] Missing parameters in the event…`; nawias bez cyfr jak `[F]`/`[iOS]` nie liczy
-  się jako numer i jest raportowany osobno; poprawności numeru nie walidujemy). Działa też
-  na jawnej liście kluczy (np. zakres release'a z Notion). Wynik: tabela KEY | problem.
+  lub brak numeru azurowego w tytule (domyślny regex `\[\d{6,}\]` — 6+ cyfr, np.
+  `[642321] Missing parameters in the event…`; nadpisywalny per projekt polem
+  `storyNumberPattern` w profilu). Nawiasy niepasujące do wzorca — `[F]`, `[iOS]`, `[2024]` —
+  nie liczą się jako numer i są raportowane osobno; poprawności numeru w Azure nie
+  walidujemy. Działa też na jawnej liście kluczy (np. zakres release'a z Notion).
+  Wynik: tabela KEY | problem.
 - **`/find-bug <opis słowny>`** — wyszukiwanie semantyczne: wyciągnij 2-4 słowa kluczowe
   (PL i EN!), `search_issues` z `text ~` po każdym wariancie, zbierz kandydatów, oceń
   dopasowanie, dla najlepszego podaj status + na jakim środowisku (fixVersions/labels/komentarze)
@@ -274,10 +276,27 @@ wolno wykonywać manualne testy zapisu (Faza 2); testy automatyczne pozostają r
 - **Faza 3 (poza tym repo, osobna decyzja):** integracja Notion→Jira, wykorzystanie
   serwera przez PM w Claude Desktop/Cowork (README ma zawierać sekcję konfiguracji
   dla Claude Desktop z przykładowym wpisem `mcpServers`).
-- **Backlog pomysłów (następne iteracje):** hook Claude Code (PreToolUse, dystrybuowany
-  w pluginie) blokujący automatyczną edycję pól `allowWrite` w
-  `~/.config/jira-tools/config.json` — zmiana bezpieczników tylko ręcznie przez człowieka;
-  agent nie może sam sobie włączyć zapisu.
+- **Backlog — sprint 3 (kolejność wg wartości):**
+  1. **Hook chroniący bezpieczniki** — PreToolUse (dystrybuowany w pluginie) blokujący
+     automatyczną edycję pól `allowWrite` w `~/.config/jira-tools/config.json`; zmiana
+     tylko ręcznie przez człowieka.
+  2. **Oznaczanie treści AI** — labelka `ai-generated` dokładana TWARDO w kodzie
+     `create_issue` (nie w promptcie); opt-in pytany w `/jira-setup` z wyjaśnieniem.
+     Komentarzy Jira nie labelkuje — `add_comment` dokleja krótki stały suffix w treści.
+     Filtrowalność: `labels = ai-generated` w JQL.
+  3. **Szablony ticketów per TYP zadania** — `projects.KEY.taskTemplate.{bug,story,task}`
+     z fallbackiem do szablonu domyślnego (bug ma kroki reprodukcji, story ma AC — jeden
+     uniwersalny szablon kończy się sekcjami "n/d"); `/jira-config` pyta/przyjmuje wklejony
+     szablon, `/create-task` używa.
+  4. **Skill `/feedback`** — mini-wywiad z użytkownikiem (co, po co, przykład) → gotowa
+     wiadomość do wklejenia na Slacka; v2: opcjonalny ticket przez `create_issue` do
+     dedykowanego projektu — z pełnym dry-runem (zero wyjątków od reguły podgląd→
+     potwierdzenie) i labelką `ai-generated`.
+  5. **Tryb kompaktowy `get_issue`** — domyślnie N ostatnich komentarzy (np. 5) i przycięty
+     opis z dopiskiem "(pokazano X z Y — pełna treść: all_comments=true)"; parametr na
+     całość. Ochrona kontekstu rozmowy przy dużych ticketach (grooming przez PM).
+- **Odrzucone/odłożone bez terminu:** pamięć kontekstu tasków (źródłem prawdy jest Jira,
+  lokalny cache dryfuje; wraca tylko z konkretnymi scenariuszami użycia).
 
 ## 10. Definition of Done
 
