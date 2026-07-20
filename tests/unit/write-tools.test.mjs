@@ -9,6 +9,7 @@ const CONFIG = {
   server: 'https://jira.example.pl',
   token: 't',
   allowWrite: true,
+  aiLabel: false, // AI-marking tested separately — keep base assertions exact
   projects: { PROJ: { epicLinkField: 'customfield_10008' } },
   writeProjects: ['PROJ'],
   writeBudget: { creates: 10, total: 30 },
@@ -233,6 +234,45 @@ test('per-project gate: add_comment and transition derive the project from the k
 
   const allowed = await tools.get('add_comment').handler({ key: 'PROJ-5', body: 'x' })
   assert.equal(allowed.isError, undefined)
+})
+
+// --- AI transparency marking ------------------------------------------------------
+
+test('create_issue: aiLabel on (default) adds the ai-generated label without duplicating', async () => {
+  const sent = []
+  const tools = setup({
+    config: { ...CONFIG, aiLabel: true },
+    client: { createIssue: async (_config, fields) => { sent.push(fields); return { key: 'PROJ-1' } } },
+  })
+  await tools.get('create_issue').handler({ project: 'PROJ', issue_type: 'Task', summary: 'Fresh work item' })
+  assert.deepEqual(sent[0].labels, ['ai-generated'])
+
+  await tools.get('create_issue').handler({
+    project: 'PROJ', issue_type: 'Task', summary: 'Another work item', labels: ['mobile', 'ai-generated'],
+  })
+  assert.deepEqual(sent[1].labels, ['mobile', 'ai-generated'])
+})
+
+test('create_issue: aiLabel=false adds nothing', async () => {
+  let sent = null
+  const tools = setup({
+    client: { createIssue: async (_config, fields) => { sent = fields; return { key: 'PROJ-1' } } },
+  })
+  await tools.get('create_issue').handler({ project: 'PROJ', issue_type: 'Task', summary: 'Fresh work item' })
+  assert.equal(sent.labels, undefined)
+})
+
+test('add_comment: aiLabel on appends the signature, off leaves the body untouched', async () => {
+  const bodies = []
+  const client = { addComment: async (_config, _key, body) => { bodies.push(body); return {} } }
+
+  const marked = setup({ config: { ...CONFIG, aiLabel: true }, client })
+  await marked.get('add_comment').handler({ key: 'PROJ-42', body: 'Retest proszę' })
+  assert.equal(bodies[0], 'Retest proszę\n\n_(ai-generated · jira-tools)_')
+
+  const plain = setup({ client })
+  await plain.get('add_comment').handler({ key: 'PROJ-42', body: 'Retest proszę' })
+  assert.equal(bodies[1], 'Retest proszę')
 })
 
 // --- session write budget -------------------------------------------------------

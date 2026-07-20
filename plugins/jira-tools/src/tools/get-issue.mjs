@@ -17,6 +17,8 @@ export default {
     inputSchema: {
       key: z.string().optional().describe('Single issue key or range, e.g. "PROJ-42" or "PROJ-98..111"'),
       keys: z.array(z.string()).optional().describe('Multiple keys and/or ranges'),
+      all_comments: z.boolean().optional()
+        .describe('Return ALL comments and the full description (default: last 5 comments, description capped — saves context on big tickets)'),
     },
   },
 
@@ -25,7 +27,7 @@ export default {
    * @param {{config: object, client: object}} ctx
    * @returns {Promise<string>}
    */
-  async run({ key, keys }, { config, client }) {
+  async run({ key, keys, all_comments }, { config, client }) {
     const expanded = expandKeys([key, ...(keys ?? [])].filter(Boolean))
     if (expanded.length === 0) {
       throw new JiraError('Podaj klucz zadania w parametrze "key" lub listę w "keys" (obsługiwane zakresy: PROJ-98..111).')
@@ -43,7 +45,7 @@ export default {
     })
 
     const parts = []
-    if (issues.length) parts.push(formatIssuesFull(issues, { server: config.server }))
+    if (issues.length) parts.push(formatIssuesFull(issues, { server: config.server, full: all_comments === true }))
     if (errors.length) parts.push(errors.join('\n'))
     return parts.join('\n\n')
   },

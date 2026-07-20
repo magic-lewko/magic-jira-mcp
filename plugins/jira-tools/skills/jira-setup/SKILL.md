@@ -15,6 +15,9 @@ Guide the user through configuring the Jira connection. Respond in the user's la
    - **Work mode: read-only (recommended default) or with write access?** Explain in one
      sentence: write mode adds create/comment/transition tools, and even then each project
      must additionally be opted in for writes during `/jira-config` (per-project safety switch).
+   - **Mark AI-created content?** (`aiLabel`, default yes — recommended): issues created by
+     the agent get an `ai-generated` label (filterable in JQL) and agent comments get a short
+     signature, so the team can always tell human content from AI content.
 
 2. **Write the config file** to `~/.config/jira-tools/config.json` (Windows: `%USERPROFILE%\.config\jira-tools\config.json`). Create the directory if missing. Merge with existing content if the file already exists (do not drop an existing `projects` section). Shape:
 
@@ -24,7 +27,8 @@ Guide the user through configuring the Jira connection. Respond in the user's la
      "token": "<token>",
      "language": "pl",
      "defaultProject": "PROJ",
-     "allowWrite": false
+     "allowWrite": false,
+     "aiLabel": true
    }
    ```
 

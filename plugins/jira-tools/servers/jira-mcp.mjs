@@ -21144,6 +21144,7 @@ function loadConfig({ env = process.env, path = configPath() } = {}) {
     language: env.JIRA_LANG || file.language || "pl",
     projects: typeof file.projects === "object" && file.projects !== null ? file.projects : {},
     writeProjects: parseProjectList(env.JIRA_WRITE_PROJECTS, file.writeProjects),
+    aiLabel: defaultTrue(env.JIRA_AI_LABEL ?? file.aiLabel),
     writeBudget: {
       creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
       total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30
@@ -21153,6 +21154,9 @@ function loadConfig({ env = process.env, path = configPath() } = {}) {
 function positiveInt(value) {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : void 0;
+}
+function defaultTrue(value) {
+  return value === void 0 || value === null || !(value === false || value === "false");
 }
 function parseProjectList(envList, fileList) {
   const fromEnv = String(envList ?? "").split(",");
@@ -21480,7 +21484,10 @@ var add_comment_default = {
     const issueKey = key.trim().toUpperCase();
     assertProjectWritable(config2, issueKey.split("-")[0]);
     consumeWriteBudget(config2, "write");
-    await client.addComment(config2, issueKey, body);
+    const text = config2.aiLabel !== false ? `${body}
+
+_(ai-generated \xB7 jira-tools)_` : body;
+    await client.addComment(config2, issueKey, text);
     return `Dodano komentarz do ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
   }
 };
@@ -21574,7 +21581,9 @@ var create_issue_default = {
     };
     if (args.description) fields.description = args.description;
     if (args.components?.length) fields.components = args.components.map((name) => ({ name }));
-    if (args.labels?.length) fields.labels = args.labels;
+    const labels = [...args.labels ?? []];
+    if (config2.aiLabel !== false && !labels.includes("ai-generated")) labels.push("ai-generated");
+    if (labels.length) fields.labels = labels;
     if (args.assignee) fields.assignee = { name: args.assignee };
     if (args.epic_key) {
       const epicField = await resolveField(config2, client, project, EPIC_FIELD);
@@ -21592,6 +21601,8 @@ var create_issue_default = {
 
 // plugins/jira-tools/src/format.mjs
 var SEPARATOR = "\u2500".repeat(60);
+var COMMENT_LIMIT = 5;
+var DESCRIPTION_LIMIT = 4e3;
 function day(iso) {
   return iso ? String(iso).slice(0, 10) : "?";
 }
@@ -21616,13 +21627,39 @@ function formatIssueList({ issues, total, startAt = 0 }) {
   }
   return lines.join("\n");
 }
-function formatIssueFull(issue2, { server } = {}) {
+function descriptionBlock(fields, full) {
+  let description = (fields.description ?? "(brak opisu)").trim() || "(brak opisu)";
+  if (!full && description.length > DESCRIPTION_LIMIT) {
+    description = `${description.slice(0, DESCRIPTION_LIMIT)}
+\u2026 (opis przyci\u0119ty \u2014 pe\u0142na tre\u015B\u0107: all_comments=true)`;
+  }
+  return ["", "OPIS:", description];
+}
+function attachmentsBlock(fields) {
+  const atts = fields.attachment ?? [];
+  if (atts.length === 0) return [];
+  return ["", `ZA\u0141\u0104CZNIKI (${atts.length}):`, ...atts.map((a) => `- ${a.filename}  ${a.content}`)];
+}
+function commentsBlock(fields, full) {
+  const comments = fields.comment?.comments ?? [];
+  if (comments.length === 0) return [];
+  const shown = full || comments.length <= COMMENT_LIMIT ? comments : comments.slice(-COMMENT_LIMIT);
+  const header = shown.length === comments.length ? `KOMENTARZE (${comments.length}):` : `KOMENTARZE (pokazano ${shown.length} ostatnich z ${comments.length} \u2014 pe\u0142na lista: all_comments=true):`;
+  const lines = ["", header];
+  for (const c of shown) {
+    lines.push(
+      `\u2022 ${c.author?.displayName ?? "?"} (${day(c.created)}):`,
+      `  ${(c.body ?? "").trim().replaceAll("\n", "\n  ")}`
+    );
+  }
+  return lines;
+}
+function formatIssueFull(issue2, { server, full = false } = {}) {
   const f = issue2.fields ?? {};
-  const out = [];
-  out.push(`${issue2.key} \u2014 ${f.summary ?? "(bez tytu\u0142u)"}`);
-  out.push(
+  const out = [
+    `${issue2.key} \u2014 ${f.summary ?? "(bez tytu\u0142u)"}`,
     `${f.issuetype?.name ?? "?"} \xB7 ${f.priority?.name ?? "?"} \xB7 ${f.status?.name ?? "?"} \xB7 ${f.assignee?.displayName ?? "Nieprzypisany"} \xB7 zg\u0142osi\u0142: ${f.reporter?.displayName ?? "?"}`
-  );
+  ];
   const meta = [];
   if ((f.components ?? []).length) meta.push(`komponenty: ${f.components.map((c) => c.name).join(", ")}`);
   if ((f.labels ?? []).length) meta.push(`labels: ${f.labels.join(", ")}`);
@@ -21631,20 +21668,7 @@ function formatIssueFull(issue2, { server } = {}) {
   meta.push(`utworzono: ${day(f.created)}, aktualizacja: ${day(f.updated)}`);
   out.push(meta.join(" \xB7 "));
   if (server) out.push(`${server}/browse/${issue2.key}`);
-  out.push("", "OPIS:", (f.description ?? "(brak opisu)").trim() || "(brak opisu)");
-  const atts = f.attachment ?? [];
-  if (atts.length) {
-    out.push("", `ZA\u0141\u0104CZNIKI (${atts.length}):`);
-    for (const a of atts) out.push(`- ${a.filename}  ${a.content}`);
-  }
-  const comments = f.comment?.comments ?? [];
-  if (comments.length) {
-    out.push("", `KOMENTARZE (${comments.length}):`);
-    for (const c of comments) {
-      out.push(`\u2022 ${c.author?.displayName ?? "?"} (${day(c.created)}):`);
-      out.push(`  ${(c.body ?? "").trim().replaceAll("\n", "\n  ")}`);
-    }
-  }
+  out.push(...descriptionBlock(f, full), ...attachmentsBlock(f), ...commentsBlock(f, full));
   return out.join("\n");
 }
 function formatIssuesFull(issues, opts = {}) {
@@ -21660,7 +21684,10 @@ function formatSprint(sprint) {
 }
 function formatBoards(boards) {
   if (boards.length === 0) return "Brak board\xF3w.";
-  return boards.map((b) => `${b.id} \u2014 ${b.name} (${b.type}${b.location?.projectKey ? `, projekt: ${b.location.projectKey}` : ""})`).join("\n");
+  return boards.map((b) => {
+    const project = b.location?.projectKey ? `, projekt: ${b.location.projectKey}` : "";
+    return `${b.id} \u2014 ${b.name} (${b.type}${project})`;
+  }).join("\n");
 }
 function formatChangelog(issue2) {
   const histories = issue2.changelog?.histories ?? [];
@@ -21682,7 +21709,8 @@ function formatEpicStatus(epicKey, { issues, total }) {
     counts.set(status, (counts.get(status) ?? 0) + 1);
   }
   const open = issues.filter((i) => i.fields?.status?.statusCategory?.key !== "done");
-  const out = [`Epic ${epicKey} \u2014 ${issues.length} zada\u0144${issues.length < total ? ` (z ${total})` : ""}:`];
+  const ofTotal = issues.length < total ? ` (z ${total})` : "";
+  const out = [`Epic ${epicKey} \u2014 ${issues.length} zada\u0144${ofTotal}:`];
   for (const [status, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
     out.push(`  ${String(n).padStart(3)}  ${status}`);
   }
@@ -21780,7 +21808,8 @@ var get_issue_default = {
     description: `Full detail of one or more issues: description, comments (author + date), attachments (names + URLs), components, labels, fixVersions, epic/parent. Accepts single keys and inclusive ranges: "PROJ-98..111" or "PROJ-98..PROJ-111". Max ${MAX_KEYS2} issues per call.`,
     inputSchema: {
       key: external_exports.string().optional().describe('Single issue key or range, e.g. "PROJ-42" or "PROJ-98..111"'),
-      keys: external_exports.array(external_exports.string()).optional().describe("Multiple keys and/or ranges")
+      keys: external_exports.array(external_exports.string()).optional().describe("Multiple keys and/or ranges"),
+      all_comments: external_exports.boolean().optional().describe("Return ALL comments and the full description (default: last 5 comments, description capped \u2014 saves context on big tickets)")
     }
   },
   /**
@@ -21788,7 +21817,7 @@ var get_issue_default = {
    * @param {{config: object, client: object}} ctx
    * @returns {Promise<string>}
    */
-  async run({ key, keys }, { config: config2, client }) {
+  async run({ key, keys, all_comments }, { config: config2, client }) {
     const expanded = expandKeys([key, ...keys ?? []].filter(Boolean));
     if (expanded.length === 0) {
       throw new JiraError('Podaj klucz zadania w parametrze "key" lub list\u0119 w "keys" (obs\u0142ugiwane zakresy: PROJ-98..111).');
@@ -21804,7 +21833,7 @@ var get_issue_default = {
       else errors.push(`! ${expanded[i]}: ${r.reason?.message ?? r.reason}`);
     });
     const parts = [];
-    if (issues.length) parts.push(formatIssuesFull(issues, { server: config2.server }));
+    if (issues.length) parts.push(formatIssuesFull(issues, { server: config2.server, full: all_comments === true }));
     if (errors.length) parts.push(errors.join("\n"));
     return parts.join("\n\n");
   }

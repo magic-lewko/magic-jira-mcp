@@ -3,11 +3,54 @@
 Jira ↔ Claude. Piszesz po ludzku, dostajesz odpowiedź z Jiry.
 `PROJ` = klucz Twojego projektu. Komendy `/…` działają w Claude Code; **prompty działają wszędzie** (też w Claude Desktop).
 
-## Start (raz)
+## Zanim zaczniesz (obie grupy)
 
-1. `/jira-tools:jira-setup` — serwer, token, język, tryb read-only/zapis
-2. `/jira-tools:jira-config PROJ` — profil projektu (board, statusy, konwencje)
-3. Gotowe. Domyślnie wszystko jest tylko do odczytu.
+| Potrzebujesz | Skąd wziąć |
+| --- | --- |
+| Node.js ≥ 20 | sprawdź: `node -v` w terminalu; brak → [nodejs.org](https://nodejs.org) (LTS) |
+| dostęp do Jiry | otwórz Jirę w przeglądarce (VPN, jeśli wymagany) |
+| token PAT | Jira → **awatar (prawy górny róg)** → **Personal Access Tokens** → **Create token** — skopiuj od razu, pokaże się tylko raz |
+
+## Instalacja — dev (Claude Code, ~5 min)
+
+```text
+/plugin marketplace add https://github.com/magic-lewko/magic-jira-mcp
+/plugin install jira-tools@magic-jira-mcp
+/jira-tools:jira-setup
+```
+
+Setup poprowadzi Cię przez URL, token, język i tryb pracy — na końcu „**Zalogowano jako …**".
+Potem raz na projekt:
+
+```text
+/jira-tools:jira-config TWÓJPROJEKT
+```
+
+## Instalacja — PM / analityk (Claude Desktop, ~10 min)
+
+1. Pobierz pliki pluginu w stałe miejsce, np. `C:\narzedzia\magic-jira-mcp`:
+   `git clone https://github.com/magic-lewko/magic-jira-mcp.git` (albo ZIP: Code → Download ZIP)
+2. Claude Desktop → **Settings → Developer → Edit Config** → dopisz (popraw ścieżkę — ukośniki `/` — oraz URL i token):
+
+   ```json
+   {
+     "mcpServers": {
+       "jira": {
+         "command": "node",
+         "args": ["C:/narzedzia/magic-jira-mcp/plugins/jira-tools/servers/jira-mcp.mjs"],
+         "env": {
+           "JIRA_SERVER": "https://jira.example.pl",
+           "JIRA_TOKEN": "<twój PAT>"
+         }
+       }
+     }
+   }
+   ```
+
+3. Zrestartuj Claude Desktop (całkiem zamknij i otwórz)
+4. Test: zapytaj **„kim jestem w Jirze?"** → „Zalogowano jako …" = działa
+
+Domyślnie wszystko jest **tylko do odczytu**. Najczęstsze potknięcia: `\` zamiast `/` w ścieżce · brak restartu · brak Node (`node -v`) · wygasły token.
 
 ## Odczyt — co chcesz wiedzieć?
 
@@ -42,6 +85,7 @@ Włączasz raz: tryb zapisu w `/jira-setup` + zgoda dla projektu w `/jira-config
 | przypięcie stories do epica | `stories PROJ-101, PROJ-105..110 bez epica podepnij pod epic PROJ-200` |
 
 Przy tworzeniu zawsze: **podgląd → Twoje potwierdzenie → dopiero zapis** (+ wybór: sprint czy backlog). Bez potwierdzenia nic nie powstanie.
+Tickety od agenta dostają labelkę `ai-generated` (filtr w JQL: `labels = ai-generated`), a komentarze podpis — zawsze widać, co wygenerowało AI.
 
 ## Dlaczego czasem odmówi? (celowo)
 
@@ -59,3 +103,5 @@ Przy tworzeniu zawsze: **podgląd → Twoje potwierdzenie → dopiero zapis** (+
 | timeout | VPN |
 | brak narzędzi zapisu mimo włączenia | `/reload-plugins` |
 | dziwna kolejność statusów w raportach | `/jira-tools:jira-config PROJ` → wybierz właściwy board |
+
+Masz pomysł na ulepszenie pluginu? **`/jira-tools:feedback`** — krótki wywiad i gotowa wiadomość do wklejenia na Slacka.

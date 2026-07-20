@@ -33,4 +33,27 @@ Build a project profile so the other Jira skills stop guessing status names. Res
    Save the answers in the profile as `"platforms": [...]` and `"titleConvention": "..."` —
    `/jira-tools:create-task` reads them instead of assuming defaults.
 
+   Also set up **description templates per issue TYPE** (`taskTemplate.{bug,story,task}`).
+   Offer three ways, in this order:
+
+   1. **Import z istniejącego ticketa (zalecane)** — the user points at reference tickets in
+      Jira that are written the way the team wants, one per type, e.g.
+      `BUG - DC-99, TASK - DC-100, STORY - DC-101`. For each: call `get_issue`, read the
+      description, and derive a template from its STRUCTURE — keep the section headers,
+      ordering, formatting and wording style; replace the concrete content of each section
+      with a short placeholder. Show the derived template and ask for acceptance.
+      This gives a template in the team's real style instead of a generic one.
+   2. **Własny szablon** — the user pastes the sections directly.
+   3. **Propozycja skilla** — only when the user asks for a suggestion:
+      bug: Problem / Kroki reprodukcji / Oczekiwane / Środowisko;
+      story: Kontekst biznesowy / Zakres / Kryteria akceptacji;
+      task: Kontekst / Zakres / Definition of Done.
+
+   Types not covered stay without a template (that's fine). Save as
+   `"taskTemplate": { "bug": "...", "story": "...", "task": "..." }`.
+
+   Tell the user what the template is FOR: it makes `/jira-tools:create-task` ask them for
+   the sections they skipped, instead of inventing content. The agent fills sections only
+   with what the user provides.
+
 6. Show the user a short summary of what was saved: board, status column order, epic link field, component count, platforms + title convention, and whether writes are enabled for this project. Mention that `/jira-tools:sprint-health` and epic queries will now use these statuses.

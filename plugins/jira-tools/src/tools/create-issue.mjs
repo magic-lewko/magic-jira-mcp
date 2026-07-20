@@ -87,7 +87,11 @@ export default {
     }
     if (args.description) fields.description = args.description
     if (args.components?.length) fields.components = args.components.map((name) => ({ name }))
-    if (args.labels?.length) fields.labels = args.labels
+    // AI transparency (enforced in code, not prompts): mark agent-created
+    // issues with a filterable label unless the user opted out (aiLabel: false).
+    const labels = [...(args.labels ?? [])]
+    if (config.aiLabel !== false && !labels.includes('ai-generated')) labels.push('ai-generated')
+    if (labels.length) fields.labels = labels
     if (args.assignee) fields.assignee = { name: args.assignee }
     if (args.epic_key) {
       const epicField = await resolveField(config, client, project, EPIC_FIELD)

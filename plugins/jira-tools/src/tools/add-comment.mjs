@@ -22,7 +22,9 @@ export default {
     const issueKey = key.trim().toUpperCase()
     assertProjectWritable(config, issueKey.split('-')[0])
     consumeWriteBudget(config, 'write')
-    await client.addComment(config, issueKey, body)
+    // Jira cannot label comments — AI transparency lands as a constant signature.
+    const text = config.aiLabel !== false ? `${body}\n\n_(ai-generated · jira-tools)_` : body
+    await client.addComment(config, issueKey, text)
     return `Dodano komentarz do ${issueKey} — ${config.server}/browse/${issueKey}`
   },
 }

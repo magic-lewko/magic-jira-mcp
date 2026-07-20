@@ -77,7 +77,7 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
 | Narzędzie             | Parametry                                                                                             | Opis                                                                                                                                                                             |
 | --------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `search_issues`       | `jql` (string, wymagany), `max_results` (int, domyślnie 30, max 100), `fields` (string[], opcjonalne) | Wykonuje dowolny JQL. Fundament — Claude sam składa JQL dla pytań w naturalnym języku. Zwraca kompaktową listę: klucz, typ, status, priorytet, assignee, tytuł, labels, updated. |
-| `get_issue`           | `key` lub `keys` (obsłuż też zakres `PROJ-98..111`)                                                   | Pełny detal: opis, komentarze (autor+data), załączniki (nazwy+URL), komponenty, epic/parent. Format jak w skrypcie referencyjnym.                                                |
+| `get_issue`           | `key` lub `keys` (obsłuż też zakres `PROJ-98..111`), `all_comments?`                                  | Pełny detal: opis, komentarze (autor+data), załączniki (nazwy+URL), komponenty, epic/parent. Oszczędność kontekstu: domyślnie 5 ostatnich komentarzy i opis do 4000 znaków z jawnym dopiskiem o przycięciu; `all_comments=true` znosi limity.  |
 | `list_boards`         | `project` (opcjonalny)                                                                                | Boardy Agile (potrzebne do znalezienia sprintu).                                                                                                                                 |
 | `get_active_sprint`   | `board_id`                                                                                            | Aktywny sprint boardu: nazwa, daty, cel.                                                                                                                                         |
 | `get_sprint_issues`   | `sprint_id` lub (`board_id` + `sprint_name`)                                                          | Taski sprintu, kompaktowo.                                                                                                                                                       |
@@ -120,6 +120,18 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
    starcie serwera, więc wyłączenie `allowWrite` w configu odcina zapis natychmiast, nawet
    zanim ktoś zrobi `/reload-plugins` (narzędzia mogą być jeszcze widoczne, ale każda
    operacja zwraca odmowę).
+6. **Hook chroniący bezpieczniki** (`hooks/hooks.json` + `hooks/guard-config.mjs`,
+   dystrybuowane w pluginie) — PreToolUse na Edit/Write/MultiEdit/Bash: każda operacja,
+   która zmieniłaby wartość `allowWrite` (globalną lub per projekt) w
+   `~/.config/jira-tools/config.json`, wymusza ręczne potwierdzenie człowieka
+   (`permissionDecision: "ask"`). Edycje są symulowane i porównywane wartościami, więc
+   trik `"false"→"true"` bez słowa "allowWrite" też jest łapany. Ograniczenie platformy:
+   w trybach auto/bypassPermissions prompt nie wystąpi.
+
+**Oznaczanie treści AI (transparentność, nie bezpiecznik):** przy `aiLabel: true`
+(domyślne; pyta o to `/jira-setup`, env `JIRA_AI_LABEL`) `create_issue` dokłada w kodzie
+labelkę `ai-generated` (filtrowalna: `labels = ai-generated`), a `add_comment` dokleja
+stały podpis `_(ai-generated · jira-tools)_` — komentarzy Jira nie labelkuje.
 
 ### 4.3 Wymagania wspólne
 
@@ -166,6 +178,11 @@ nazwy statusów i pól:
       "sprintField": "customfield_XXXXX",
       "platforms": ["iOS", "Android", "Web", "Backend"],
       "titleConvention": "[<Platforma>] <tytuł>",
+      "taskTemplate": {
+        "bug": "Kroki reprodukcji:\n1. …\n\nOczekiwane:\n…\n\nFaktyczne:\n…",
+        "story": "Kontekst biznesowy:\n…\n\nKryteria akceptacji:\n- …",
+        "task": "Kontekst:\n…\n\nZakres:\n…\n\nDefinition of Done:\n- …"
+      },
       "components": ["Frontend", "Backend"],
       "issueTypes": ["Story", "Bug", "Task", "Sub-task"]
     }
@@ -218,6 +235,20 @@ konkretny, bo od niego zależy auto-wywoływanie przez model).
   - link. Gdy brak pewnego trafienia — pokaż top 3 kandydatów z zastrzeżeniem. Obsłuż też
     wariant "czy taki bug już istnieje?" (deduplikacja) i "wypisz otwarte bugi dotyczące X
     w kolumnach To Do/In Progress/Code Review".
+- **`/feedback [opis]`** — mini-wywiad o pomysł/problem z pluginem (co, po co, jak boli,
+  przykład) → gotowa wiadomość do wklejenia na Slacka dla opiekunów pluginu; opcjonalnie
+  ticket przez `create_issue` (pełny dry-run, bez wyjątków). Skill niczego sam nie wysyła.
+**Złota zasada skilli zapisu** (`/create-task`, `/feedback`): agent **strukturyzuje to, co
+podał użytkownik, i dopytuje o braki — nigdy nie wymyśla treści**. Pusta sekcja szablonu to
+sygnał do zadania pytania (i delikatnego przyciśnięcia), a nie do wypełnienia domysłem;
+świadomie pominięta sekcja dostaje dosłownie `(do uzupełnienia)`. Szablon istnieje po to,
+by wymusić myślenie użytkownika, nie by dać agentowi miejsce na halucynacje.
+
+Szablony opisu (`taskTemplate` per typ) konfiguruje `/jira-config` na trzy sposoby:
+**import ze wskazanych ticketów wzorcowych** (zalecane — np. `BUG - PROJ-99, TASK - PROJ-100`;
+skill czyta je przez `get_issue` i wyprowadza strukturę sekcji w stylu zespołu), własny
+wklejony szablon albo propozycja skilla.
+
 - **`/create-task <opis>`** — (faza 2) tworzy tickety per platforma. Z opisu case'u generuje:
   tytuł, opis, acceptance criteria (w języku z configu), komponent per platforma
   (iOS/Android/Web/Backend → osobne tickety). **OBOWIĄZKOWY dry-run:** najpierw wypisz
@@ -276,25 +307,11 @@ wolno wykonywać manualne testy zapisu (Faza 2); testy automatyczne pozostają r
 - **Faza 3 (poza tym repo, osobna decyzja):** integracja Notion→Jira, wykorzystanie
   serwera przez PM w Claude Desktop/Cowork (README ma zawierać sekcję konfiguracji
   dla Claude Desktop z przykładowym wpisem `mcpServers`).
-- **Backlog — sprint 3 (kolejność wg wartości):**
-  1. **Hook chroniący bezpieczniki** — PreToolUse (dystrybuowany w pluginie) blokujący
-     automatyczną edycję pól `allowWrite` w `~/.config/jira-tools/config.json`; zmiana
-     tylko ręcznie przez człowieka.
-  2. **Oznaczanie treści AI** — labelka `ai-generated` dokładana TWARDO w kodzie
-     `create_issue` (nie w promptcie); opt-in pytany w `/jira-setup` z wyjaśnieniem.
-     Komentarzy Jira nie labelkuje — `add_comment` dokleja krótki stały suffix w treści.
-     Filtrowalność: `labels = ai-generated` w JQL.
-  3. **Szablony ticketów per TYP zadania** — `projects.KEY.taskTemplate.{bug,story,task}`
-     z fallbackiem do szablonu domyślnego (bug ma kroki reprodukcji, story ma AC — jeden
-     uniwersalny szablon kończy się sekcjami "n/d"); `/jira-config` pyta/przyjmuje wklejony
-     szablon, `/create-task` używa.
-  4. **Skill `/feedback`** — mini-wywiad z użytkownikiem (co, po co, przykład) → gotowa
-     wiadomość do wklejenia na Slacka; v2: opcjonalny ticket przez `create_issue` do
-     dedykowanego projektu — z pełnym dry-runem (zero wyjątków od reguły podgląd→
-     potwierdzenie) i labelką `ai-generated`.
-  5. **Tryb kompaktowy `get_issue`** — domyślnie N ostatnich komentarzy (np. 5) i przycięty
-     opis z dopiskiem "(pokazano X z Y — pełna treść: all_comments=true)"; parametr na
-     całość. Ochrona kontekstu rozmowy przy dużych ticketach (grooming przez PM).
+- **Sprint 3 (zrealizowany):** hook chroniący bezpieczniki (§4.2 p.6), oznaczanie treści
+  AI (§4.2), szablony per typ zadania (§5.1), skill `/feedback` (§6), tryb kompaktowy
+  `get_issue` (§4.1).
+- **Backlog:** research praktyk zespołów AI-first (wynik: raport z rekomendacjami, nie
+  kod); Notion→Jira po uzyskaniu dostępu do Notion MCP (konfiguracja, nie development).
 - **Odrzucone/odłożone bez terminu:** pamięć kontekstu tasków (źródłem prawdy jest Jira,
   lokalny cache dryfuje; wraca tylko z konkretnymi scenariuszami użycia).
 

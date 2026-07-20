@@ -129,6 +129,7 @@ brak Node.js (`node -v` w terminalu) · wygasły token (wygeneruj nowy PAT).
 | `/jira-tools:check-stories PROJ [sprint]` | audyt user stories (sprint / numer `[...]` w tytule) |
 | `/jira-tools:find-bug <opis>` | znajdź buga po opisie słownym, status + środowisko |
 | `/jira-tools:create-task <opis>` | (zapis) tickety per platforma, ZAWSZE z dry-runem |
+| `/jira-tools:feedback [opis]` | pomysł/problem z pluginem → gotowa wiadomość na Slacka |
 
 Poza skillami pytaj naturalnie: „które moje taski w PROJ zmieniły wczoraj status?",
 „czy bug z licznikiem powiadomień jest już na UAT?" — Claude sam złoży JQL.
@@ -149,6 +150,10 @@ Wbudowane bezpieczniki (w kodzie serwera):
   `/jira-tools:jira-config`) albo klucz jest w `writeProjects` / env `JIRA_WRITE_PROJECTS`.
   Działa od razu, bez restartu — projekty produkcyjne zostają read-only, dopóki ktoś
   świadomie ich nie odblokuje,
+- **hook chroniący bezpieczniki** — plugin instaluje hook, który wymusza ręczne
+  potwierdzenie każdej próby zmiany pól `allowWrite` w configu (także sprytnych, typu
+  podmiana samego `false`→`true`); agent nie włączy sobie zapisu sam. Uwaga: w trybach
+  auto/bypassPermissions Claude Code pomija prompty — tam hook nie chroni,
 - **jeden ticket na wywołanie** — brak API batchowego,
 - **budżet zapisu na sesję** — domyślnie 10 utworzeń / 30 operacji zapisu łącznie; po
   przekroczeniu serwer odmawia aż do restartu (`/reload-plugins`). Zmiana limitu: pole
@@ -160,9 +165,44 @@ Wbudowane bezpieczniki (w kodzie serwera):
 - `/jira-tools:create-task` ZAWSZE pokazuje pełny podgląd (dry-run) i czeka na Twoje
   potwierdzenie, zanim cokolwiek utworzy.
 
+**Oznaczanie treści AI:** domyślnie (`"aiLabel": true`, pyta o to `/jira-tools:jira-setup`)
+tickety tworzone przez agenta dostają labelkę `ai-generated` (odfiltrujesz je w JQL:
+`labels = ai-generated`), a komentarze — krótki podpis. Zawsze wiadomo, co dodał człowiek,
+a co wygenerowało AI.
+
 **Zalecenie:** przy pytaniu Claude Code o uprawnienie dla `create_issue` nie wybieraj
 „always allow" — zatwierdzanie każdego utworzenia ręcznie to ostatnia warstwa ochrony.
 Testy zapisu wykonuj wyłącznie na sandboksie testowym, nigdy na projekcie produkcyjnym.
+
+## Mniej pytań o uprawnienia (Claude Code, opcjonalnie)
+
+Żeby odczyty nie pytały o zgodę przy każdym wywołaniu, dodaj do `.claude/settings.json`
+projektu (albo swoich ustawień użytkownika) gotowy zestaw — **wyłącznie narzędzia odczytu**:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_jira-tools_jira__search_issues",
+      "mcp__plugin_jira-tools_jira__get_issue",
+      "mcp__plugin_jira-tools_jira__get_issue_changelog",
+      "mcp__plugin_jira-tools_jira__list_boards",
+      "mcp__plugin_jira-tools_jira__get_active_sprint",
+      "mcp__plugin_jira-tools_jira__get_sprint_issues",
+      "mcp__plugin_jira-tools_jira__get_epic_status",
+      "mcp__plugin_jira-tools_jira__get_current_user",
+      "mcp__plugin_jira-tools_jira__get_project_config"
+    ]
+  }
+}
+```
+
+**Świadomie NIE dodawaj** narzędzi zapisu (`create_issue`, `add_comment`,
+`transition_issue`, `assign_to_epic`) — ręczne potwierdzanie każdego zapisu to ostatnia
+warstwa bezpieczeństwa i ma tak zostać.
+
+Tip per repo: w tym samym pliku możesz ustawić domyślny projekt dla danego katalogu:
+`"env": { "JIRA_DEFAULT_PROJECT": "PROJ" }` (env wygrywa z configiem użytkownika).
 
 ## Checklista testu end-to-end (na czystej instalacji)
 
@@ -189,3 +229,6 @@ Testy zapisu wykonuj wyłącznie na sandboksie testowym, nigdy na projekcie prod
 - `npm run build` — bunduje `src/` do self-contained `servers/jira-mcp.mjs` (esbuild). **Obowiązkowe po każdej zmianie w `src/`** — instalowany jest bundle, nie źródła.
 - `npm run test:integration` — testy read-only na żywej Jirze; wymagają `JIRA_TEST_SERVER` + `JIRA_TEST_TOKEN` (albo lokalnego `.env.local`), opcjonalnie `JIRA_TEST_PROJECT`/`JIRA_TEST_ISSUE`.
 - `claude plugin validate .` — walidacja manifestów.
+- [docs/test-plan.md](docs/test-plan.md) — pełny plan testów manualnych (instalacja, odczyt,
+  zapis, bezpieczniki, złota zasada „bez wymyślania treści") do przeklikania przed
+  wydaniem zmian użytkownikom.

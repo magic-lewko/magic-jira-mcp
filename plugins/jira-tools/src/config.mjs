@@ -83,6 +83,7 @@ export function loadConfig({ env = process.env, path = configPath() } = {}) {
     language: env.JIRA_LANG || file.language || 'pl',
     projects: typeof file.projects === 'object' && file.projects !== null ? file.projects : {},
     writeProjects: parseProjectList(env.JIRA_WRITE_PROJECTS, file.writeProjects),
+    aiLabel: defaultTrue(env.JIRA_AI_LABEL ?? file.aiLabel),
     writeBudget: {
       creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
       total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30,
@@ -99,6 +100,17 @@ export function loadConfig({ env = process.env, path = configPath() } = {}) {
 function positiveInt(value) {
   const n = Number(value)
   return Number.isInteger(n) && n > 0 ? n : undefined
+}
+
+/**
+ * Boolean option that defaults to TRUE when unset; only an explicit
+ * false/"false" turns it off.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+function defaultTrue(value) {
+  return value === undefined || value === null || !(value === false || value === 'false')
 }
 
 /**

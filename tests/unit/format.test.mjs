@@ -61,6 +61,35 @@ test('formatIssueFull: snapshot on the fixture', () => {
   ].join('\n'))
 })
 
+test('formatIssueFull: compact mode caps comments at 5 with a truncation note', () => {
+  const issue = {
+    key: 'PROJ-1',
+    fields: {
+      summary: 'Big ticket',
+      description: 'x'.repeat(5000),
+      comment: {
+        comments: Array.from({ length: 8 }, (_, i) => ({
+          author: { displayName: `User${i + 1}` },
+          created: `2026-07-0${(i % 7) + 1}T10:00:00.000+0200`,
+          body: `komentarz ${i + 1}`,
+        })),
+      },
+    },
+  }
+
+  const compact = formatIssueFull(issue)
+  assert.match(compact, /KOMENTARZE \(pokazano 5 ostatnich z 8 — pełna lista: all_comments=true\):/)
+  assert.doesNotMatch(compact, /komentarz 3\b/)
+  assert.match(compact, /komentarz 8/)
+  assert.match(compact, /… \(opis przycięty — pełna treść: all_comments=true\)/)
+  assert.ok(!compact.includes('x'.repeat(4500)), 'description must be capped')
+
+  const full = formatIssueFull(issue, { full: true })
+  assert.match(full, /KOMENTARZE \(8\):/)
+  assert.match(full, /komentarz 1\b/)
+  assert.ok(full.includes('x'.repeat(5000)), 'full mode keeps the whole description')
+})
+
 test('formatSprint: name, dates, goal', () => {
   const text = formatSprint({
     id: 5, name: 'Sprint 12', state: 'active',
