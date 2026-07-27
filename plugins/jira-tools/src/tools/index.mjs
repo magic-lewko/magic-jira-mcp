@@ -6,11 +6,14 @@
  * the gate lives in server.mjs and is already tested.
  */
 
+import addAttachment from './add-attachment.mjs'
 import addComment from './add-comment.mjs'
 import assignToEpic from './assign-to-epic.mjs'
 import createIssue from './create-issue.mjs'
+import linkIssues from './link-issues.mjs'
 import searchIssues from './search-issues.mjs'
 import transitionIssue from './transition-issue.mjs'
+import updateIssue from './update-issue.mjs'
 import getIssue from './get-issue.mjs'
 import listBoards from './list-boards.mjs'
 import getActiveSprint from './get-active-sprint.mjs'
@@ -36,7 +39,10 @@ export const readTools = [
 /** Write tools — registered only behind JIRA_ALLOW_WRITE=true (gate in server.mjs). */
 export const writeTools = [
   createIssue,
+  updateIssue,
   addComment,
+  addAttachment,
   transitionIssue,
   assignToEpic,
+  linkIssues,
 ]

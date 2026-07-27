@@ -93,6 +93,9 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
 | `create_issue`     | `project`, `issue_type`, `summary`, `description`, `components[]`, `labels[]`, `assignee?`, `epic_key?`, `sprint_id?`, `allow_duplicate?` | Tworzy JEDEN ticket. Zwraca klucz + URL. `sprint_id` (z `get_active_sprint`) umieszcza ticket w sprincie — bez niego ląduje w backlogu; pole Sprint/Epic Link z profilu lub auto-detekcji. |
 | `add_comment`      | `key`, `body`                                                                                           | Dodaje komentarz.                                                                                                         |
 | `transition_issue` | `key`, `transition_name`                                                                                | Zmiana statusu (najpierw pobierz dostępne przejścia, dopasuj po nazwie case-insensitive, przy braku — wylistuj dostępne). |
+| `update_issue`     | `key`, `assignee?`, `labels?`, `add_labels?`, `components?`, `priority?`, `description?`                 | Edycja istniejącego zgłoszenia (biała lista pól). `labels`/`components` zastępują listy, `add_labels` dokłada (read-modify-write). Status → `transition_issue`, epic → `assign_to_epic`. |
+| `add_attachment`   | `key`, `path`, `filename?`                                                                              | Wysyła JEDEN plik z dysku jako załącznik (multipart + `X-Atlassian-Token: no-check`, limit 10 MB). Ścieżka wyłącznie jawnie podana przez użytkownika — bez globów. **Obraz wklejony do rozmowy nie jest plikiem**: trafia tylko do kontekstu modelu, narzędzia nie mają dostępu do jego bajtów (potwierdzone w dokumentacji), więc trzeba go najpierw zapisać na dysku. |
+| `link_issues`      | `from`, `to[]` (zakresy, max 20), `type?` (domyślnie „Relates")                                         | Tworzy powiązania między zgłoszeniami (POST `/rest/api/2/issueLink`). Typ dopasowany case-insensitive do typów instancji; przy braku — lista dostępnych. `create-task` proponuje podlinkowanie ticketów per platforma jednej story. |
 | `assign_to_epic`   | `epic_key`, `keys[]` (zakresy `PROJ-98..111`, max 20)                                                   | Przypina istniejące zadania do epica (Agile API). Use case analityka: „stories z release'a bez epica → podepnij pod epic". Każde zadanie liczy się do budżetu sesji; wszystkie dotknięte projekty muszą mieć zgodę na zapis. |
 
 **Zasada bezpieczeństwa zapisu:** narzędzia zapisu są rejestrowane w serwerze TYLKO gdy
@@ -110,7 +113,10 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
 3. **Strażnik duplikatów** — przed utworzeniem `create_issue` szuka otwartego zadania
    o tym samym (znormalizowanym) tytule w projekcie; trafienie ⇒ odmowa ze wskazaniem
    istniejącego klucza, chyba że jawnie przekazano `allow_duplicate=true` (wyłącznie po
-   potwierdzeniu przez użytkownika).
+   potwierdzeniu przez użytkownika). Ograniczenie: opiera się na indeksie tekstowym Jiry,
+   który dla świeżo utworzonych ticketów aktualizuje się z opóźnieniem — dwa identyczne
+   utworzenia w odstępie sekund mogą oba przejść. Twardym zabezpieczeniem przed pętlą jest
+   budżet sesji (p.2), nie ten strażnik.
 4. **Bezpiecznik per projekt (opt-in)** — nawet w trybie zapisu projekt jest zapisywalny
    TYLKO gdy jego profil ma `"allowWrite": true` (sekcja `projects.KEY`) albo klucz widnieje
    w `writeProjects` / env `JIRA_WRITE_PROJECTS`. Sprawdzane przy każdym wywołaniu (zmiana
@@ -310,6 +316,22 @@ wolno wykonywać manualne testy zapisu (Faza 2); testy automatyczne pozostają r
 - **Sprint 3 (zrealizowany):** hook chroniący bezpieczniki (§4.2 p.6), oznaczanie treści
   AI (§4.2), szablony per typ zadania (§5.1), skill `/feedback` (§6), tryb kompaktowy
   `get_issue` (§4.1).
+- **Backlog — zgłoszenia z użycia produkcyjnego (przez `/feedback`):**
+  1. ✅ **`update_issue`** (zrealizowane) — edycja istniejącego zgłoszenia na białej liście
+     pól: `assignee`, `labels`/`add_labels`, `components`, `priority`, `description`.
+  2. ✅ **Załączniki** (zrealizowane) — `add_attachment` (plik ze ścieżki na dysku).
+  3. ✅ **`link_issues`** (zrealizowane) — powiązania „Relates"/inne między zgłoszeniami;
+     `create-task` proponuje podlinkowanie ticketów per platforma jednej story.
+  4. **`add_attachment_from_chat`** (do zrobienia) — wysyłka zrzutu **wklejonego do
+     rozmowy**, bez zapisywania go ręcznie. Zweryfikowane empirycznie 2026-07-16:
+     Claude Code zapisuje transkrypt sesji do `~/.claude/projects/<katalog-projektu>/<uuid>.jsonl`,
+     a wklejone obrazy siedzą w nim jako bloki `{"type":"image","source":{"type":"base64",
+     "media_type":"image/png","data":"…"}}` (w sesji roboczej: 16 obrazów). Serwer MCP
+     działa lokalnie, więc może odczytać najświeższy transkrypt, wziąć N-ty od końca blok
+     obrazu (`index`, domyślnie ostatni), zdekodować base64 do pliku tymczasowego i wysłać
+     istniejącą ścieżką `addAttachment`. Do sprawdzenia osobno: lokalizacja transkryptów
+     w Claude Desktop. Bezpieczeństwo: tylko bloki obrazów, tylko bieżący projekt,
+     informacja co zostało znalezione przed wysyłką, te same bezpieczniki co reszta zapisu.
 - **Backlog:** research praktyk zespołów AI-first (wynik: raport z rekomendacjami, nie
   kod); Notion→Jira po uzyskaniu dostępu do Notion MCP (konfiguracja, nie development).
 - **Odrzucone/odłożone bez terminu:** pamięć kontekstu tasków (źródłem prawdy jest Jira,

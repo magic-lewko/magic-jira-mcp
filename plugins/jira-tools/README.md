@@ -116,7 +116,7 @@ brak Node.js (`node -v` w terminalu) · wygasły token (wygeneruj nowy PAT).
 `get_epic_status`, `get_issue_changelog` (historia statusów), `get_current_user`,
 `get_project_config` (profil projektu).
 
-**Narzędzia zapisu (tylko z `allowWrite: true` + zgoda per projekt):** `create_issue`, `add_comment`, `transition_issue`, `assign_to_epic`.
+**Narzędzia zapisu (tylko z `allowWrite: true` + zgoda per projekt):** `create_issue`, `update_issue` (assignee, labels, komponenty, priorytet, opis), `add_comment`, `add_attachment` (plik z dysku, max 10 MB), `transition_issue`, `assign_to_epic`, `link_issues` (powiązania Relates/Blocks/…).
 
 **Skille:**
 
@@ -229,6 +229,7 @@ Tip per repo: w tym samym pliku możesz ustawić domyślny projekt dla danego ka
 - `npm run build` — bunduje `src/` do self-contained `servers/jira-mcp.mjs` (esbuild). **Obowiązkowe po każdej zmianie w `src/`** — instalowany jest bundle, nie źródła.
 - `npm run test:integration` — testy read-only na żywej Jirze; wymagają `JIRA_TEST_SERVER` + `JIRA_TEST_TOKEN` (albo lokalnego `.env.local`), opcjonalnie `JIRA_TEST_PROJECT`/`JIRA_TEST_ISSUE`.
 - `claude plugin validate .` — walidacja manifestów.
+- `npm run selftest` / `npm run selftest -- --write` — self-test (tylko dla maintainerów, nie w pakiecie pluginu): odpala pełen scenariusz przez prawdziwe handlery narzędzi na żywym sandboksie (`JIRA_SELFTEST_PROJECT`, domyślnie DC) i drukuje tabelę ✓/✗. Wariant `--write` tworzy tickety `[selftest] …` i kasuje je na końcu; `--clean` usuwa zaległe po przerwanym uruchomieniu. Wymaga danych z `.env.local`/`JIRA_TEST_*`.
 - [docs/test-plan.md](docs/test-plan.md) — pełny plan testów manualnych (instalacja, odczyt,
   zapis, bezpieczniki, złota zasada „bez wymyślania treści") do przeklikania przed
   wydaniem zmian użytkownikom.

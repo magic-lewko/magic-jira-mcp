@@ -21178,6 +21178,7 @@ __export(jira_client_exports, {
   DETAIL_FIELDS: () => DETAIL_FIELDS,
   JiraError: () => JiraError,
   LIST_FIELDS: () => LIST_FIELDS,
+  addAttachment: () => addAttachment,
   addComment: () => addComment,
   addIssuesToEpic: () => addIssuesToEpic,
   createIssue: () => createIssue,
@@ -21192,12 +21193,15 @@ __export(jira_client_exports, {
   getProject: () => getProject,
   getSprintIssues: () => getSprintIssues,
   jiraFetch: () => jiraFetch,
+  linkIssues: () => linkIssues,
   listBoards: () => listBoards,
   listFields: () => listFields,
+  listIssueLinkTypes: () => listIssueLinkTypes,
   listSprints: () => listSprints,
   listStatuses: () => listStatuses,
   listTransitions: () => listTransitions,
-  searchIssues: () => searchIssues
+  searchIssues: () => searchIssues,
+  updateIssue: () => updateIssue
 });
 var LIST_FIELDS = ["summary", "status", "issuetype", "priority", "assignee", "labels", "updated"];
 var DETAIL_FIELDS = [
@@ -21260,20 +21264,21 @@ function mapHttpError(status, bodyText, what) {
   }
   return new JiraError(`Jira zwr\xF3ci\u0142a b\u0142\u0105d ${status} dla ${what}: ${bodyText.slice(0, 300)}`, { status });
 }
-async function jiraFetch(config2, path, { method = "GET", body, what = path, timeoutMs = 3e4 } = {}) {
+async function jiraFetch(config2, path, { method = "GET", body, form, what = path, timeoutMs = 3e4 } = {}) {
   const url = `${config2.server}${path}`;
   const headers = {
     Authorization: `Bearer ${config2.token}`,
     Accept: "application/json"
   };
   if (body !== void 0) headers["Content-Type"] = "application/json";
+  if (form !== void 0) headers["X-Atlassian-Token"] = "no-check";
   debug(method, path);
   let res;
   try {
     res = await fetch(url, {
       method,
       headers,
-      body: body === void 0 ? void 0 : JSON.stringify(body),
+      body: form ?? (body === void 0 ? void 0 : JSON.stringify(body)),
       signal: AbortSignal.timeout(timeoutMs)
     });
   } catch (err) {
@@ -21285,11 +21290,11 @@ async function jiraFetch(config2, path, { method = "GET", body, what = path, tim
     throw new JiraError(`Nie uda\u0142o si\u0119 po\u0142\u0105czy\u0107 z ${config2.server}: ${err?.message ?? err}`);
   }
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw mapHttpError(res.status, text, what);
+    const text2 = await res.text().catch(() => "");
+    throw mapHttpError(res.status, text2, what);
   }
-  if (res.status === 204) return null;
-  return res.json();
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 function query(params) {
   const q = new URLSearchParams();
@@ -21385,6 +21390,13 @@ function createIssue(config2, fields) {
     what: "tworzenie zadania"
   });
 }
+function updateIssue(config2, key, fields) {
+  return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    body: { fields },
+    what: `aktualizacja ${key}`
+  });
+}
 function addComment(config2, key, body) {
   return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}/comment`, {
     method: "POST",
@@ -21404,6 +21416,26 @@ function doTransition(config2, key, transitionId) {
     what: `zmiana statusu ${key}`
   });
 }
+function addAttachment(config2, key, { filename, bytes }) {
+  const form = new FormData();
+  form.append("file", new Blob([bytes]), filename);
+  return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}/attachments`, {
+    method: "POST",
+    form,
+    what: `za\u0142\u0105cznik do ${key}`,
+    timeoutMs: 6e4
+  });
+}
+function listIssueLinkTypes(config2) {
+  return jiraFetch(config2, "/rest/api/2/issueLinkType", { what: "typy powi\u0105za\u0144" });
+}
+function linkIssues(config2, { type, from, to }) {
+  return jiraFetch(config2, "/rest/api/2/issueLink", {
+    method: "POST",
+    body: { type: { name: type }, outwardIssue: { key: from }, inwardIssue: { key: to } },
+    what: `powi\u0105zanie ${from} \u2194 ${to}`
+  });
+}
 function addIssuesToEpic(config2, epicKey, issueKeys) {
   return jiraFetch(config2, `/rest/agile/1.0/epic/${encodeURIComponent(epicKey)}/issue`, {
     method: "POST",
@@ -21411,6 +21443,10 @@ function addIssuesToEpic(config2, epicKey, issueKeys) {
     what: `przypisanie zada\u0144 do epica ${epicKey}`
   });
 }
+
+// plugins/jira-tools/src/tools/add-attachment.mjs
+import { readFileSync as readFileSync2, statSync } from "node:fs";
+import { basename } from "node:path";
 
 // plugins/jira-tools/src/write-guard.mjs
 var DEFAULT_WRITE_BUDGET = { creates: 10, total: 30 };
@@ -21463,6 +21499,47 @@ async function findDuplicate(config2, client, project, summary) {
     return null;
   }
 }
+
+// plugins/jira-tools/src/tools/add-attachment.mjs
+var MAX_BYTES = 10 * 1024 * 1024;
+var add_attachment_default = {
+  name: "add_attachment",
+  config: {
+    title: "Attach a file (WRITE)",
+    description: "Upload ONE local file (e.g. a screenshot) as an attachment to a Jira issue. Requires an absolute path to an existing file \u2014 pass ONLY a path the user gave you explicitly, never a guessed or globbed one. An image pasted into the chat is not a file: ask the user to save it first (e.g. Win+Shift+S, then Save as) and give the path. Confirm the file name with the user before calling. Counts against the write budget.",
+    inputSchema: {
+      key: external_exports.string().describe('Issue key, e.g. "PROJ-42"'),
+      path: external_exports.string().describe("Absolute path to the file to upload, given by the user"),
+      filename: external_exports.string().optional().describe("Override the attachment name (default: the file name)")
+    }
+  },
+  /**
+   * @param {{key: string, path: string, filename?: string}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ key, path, filename }, { config: config2, client }) {
+    const issueKey = key.trim().toUpperCase();
+    assertProjectWritable(config2, issueKey.split("-")[0]);
+    let size;
+    try {
+      const stats = statSync(path);
+      if (!stats.isFile()) throw new Error("not a file");
+      size = stats.size;
+    } catch {
+      throw new JiraError(
+        `Nie znaleziono pliku: ${path}. Podaj pe\u0142n\u0105 \u015Bcie\u017Ck\u0119 do istniej\u0105cego pliku (zrzut wklejony do rozmowy trzeba najpierw zapisa\u0107 na dysku).`
+      );
+    }
+    if (size > MAX_BYTES) {
+      throw new JiraError(`Plik jest za du\u017Cy (${Math.round(size / 1024 / 1024)} MB, limit ${MAX_BYTES / 1024 / 1024} MB).`);
+    }
+    const name = (filename ?? basename(path)).trim();
+    consumeWriteBudget(config2, "write");
+    await client.addAttachment(config2, issueKey, { filename: name, bytes: readFileSync2(path) });
+    return `Dodano za\u0142\u0105cznik "${name}" (${Math.max(1, Math.round(size / 1024))} kB) do ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
+  }
+};
 
 // plugins/jira-tools/src/tools/add-comment.mjs
 var add_comment_default = {
@@ -21596,6 +21673,49 @@ var create_issue_default = {
     consumeWriteBudget(config2, "create");
     const created = await client.createIssue(config2, fields);
     return `Utworzono ${created.key} \u2014 ${config2.server}/browse/${created.key}`;
+  }
+};
+
+// plugins/jira-tools/src/tools/link-issues.mjs
+var MAX_TARGETS = 20;
+var link_issues_default = {
+  name: "link_issues",
+  config: {
+    title: "Link issues (WRITE)",
+    description: 'Create a link between issues (e.g. "Relates"). Links `from` to each key in `to` (keys and ranges, max ' + MAX_TARGETS + '). `from` is the outward side (for "Blocks": from blocks to). When the type name is unknown, returns the available link types. Counts against the per-session write budget.',
+    inputSchema: {
+      from: external_exports.string().describe('Source issue key, e.g. "PROJ-42"'),
+      to: external_exports.array(external_exports.string()).min(1).describe("Target keys and/or ranges to link to"),
+      type: external_exports.string().optional().describe('Link type name (default "Relates"), e.g. "Blocks", "Duplicate"')
+    }
+  },
+  /**
+   * @param {{from: string, to: string[], type?: string}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ from, to, type }, { config: config2, client }) {
+    const source = from.trim().toUpperCase();
+    const targets = expandKeys(to).filter((k) => k !== source);
+    if (targets.length === 0) throw new JiraError("Podaj co najmniej jedno zadanie docelowe (r\xF3\u017Cne od \u017Ar\xF3d\u0142owego).");
+    if (targets.length > MAX_TARGETS) {
+      throw new JiraError(`Za du\u017Co powi\u0105za\u0144 naraz (${targets.length}, limit ${MAX_TARGETS}).`);
+    }
+    const wanted = (type ?? "Relates").trim().toLowerCase();
+    const { issueLinkTypes = [] } = await client.listIssueLinkTypes(config2);
+    const match = issueLinkTypes.find((t) => t.name?.toLowerCase() === wanted);
+    if (!match) {
+      const names = [...new Set(issueLinkTypes.map((t) => `"${t.name}"`))].join(", ") || "(brak)";
+      throw new JiraError(`Nieznany typ powi\u0105zania "${type}". Dost\u0119pne: ${names}.`);
+    }
+    for (const project of new Set([source, ...targets].map((k) => k.split("-")[0]))) {
+      assertProjectWritable(config2, project);
+    }
+    for (let i = 0; i < targets.length; i++) consumeWriteBudget(config2, "write");
+    for (const target of targets) {
+      await client.linkIssues(config2, { type: match.name, from: source, to: target });
+    }
+    return `Powi\u0105zano ${source} (${match.name}) z: ${targets.join(", ")} \u2014 ${config2.server}/browse/${source}`;
   }
 };
 
@@ -21796,6 +21916,71 @@ var transition_issue_default = {
     await client.doTransition(config2, issueKey, match.id);
     const target = match.to?.name ? ` \u2192 status: ${match.to.name}` : "";
     return `${issueKey}: wykonano przej\u015Bcie "${match.name}"${target}.`;
+  }
+};
+
+// plugins/jira-tools/src/tools/update-issue.mjs
+var update_issue_default = {
+  name: "update_issue",
+  config: {
+    title: "Update issue fields (WRITE)",
+    description: "Change fields of ONE existing issue: assignee, labels, components, priority, description. Show the user exactly what will change and get confirmation BEFORE calling. Note: `labels` and `components` REPLACE the current lists \u2014 to add a label without losing the others use `add_labels`. To change status use transition_issue, to link an epic use assign_to_epic. Counts against the per-session write budget.",
+    inputSchema: {
+      key: external_exports.string().describe('Issue key, e.g. "PROJ-42"'),
+      assignee: external_exports.string().optional().describe('Jira username to assign, or "unassigned" to clear the assignee'),
+      labels: external_exports.array(external_exports.string()).optional().describe("REPLACES all labels"),
+      add_labels: external_exports.array(external_exports.string()).optional().describe("Appends labels, keeping the existing ones"),
+      components: external_exports.array(external_exports.string()).optional().describe("REPLACES all components (names)"),
+      priority: external_exports.string().optional().describe('Priority name, e.g. "High"'),
+      description: external_exports.string().optional().describe("REPLACES the description")
+    }
+  },
+  /**
+   * @param {object} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run(args, { config: config2, client }) {
+    const issueKey = args.key.trim().toUpperCase();
+    assertProjectWritable(config2, issueKey.split("-")[0]);
+    const fields = {};
+    const changed = [];
+    if (args.assignee !== void 0) {
+      const name = args.assignee.trim();
+      const clearing = name === "" || name.toLowerCase() === "unassigned";
+      fields.assignee = { name: clearing ? null : name };
+      changed.push(clearing ? "assignee \u2192 (nieprzypisany)" : `assignee \u2192 ${name}`);
+    }
+    if (args.labels) {
+      fields.labels = args.labels;
+      changed.push(`labels \u2192 ${args.labels.join(", ") || "(puste)"}`);
+    }
+    if (args.add_labels?.length) {
+      const current = await client.getIssue(config2, issueKey, { fields: ["labels"] });
+      const merged = [.../* @__PURE__ */ new Set([...current.fields?.labels ?? [], ...fields.labels ?? [], ...args.add_labels])];
+      fields.labels = merged;
+      changed.push(`labels += ${args.add_labels.join(", ")}`);
+    }
+    if (args.components) {
+      fields.components = args.components.map((name) => ({ name }));
+      changed.push(`komponenty \u2192 ${args.components.join(", ") || "(puste)"}`);
+    }
+    if (args.priority) {
+      fields.priority = { name: args.priority };
+      changed.push(`priorytet \u2192 ${args.priority}`);
+    }
+    if (args.description !== void 0) {
+      fields.description = args.description;
+      changed.push("opis (zast\u0105piony)");
+    }
+    if (Object.keys(fields).length === 0) {
+      throw new JiraError(
+        "Nie podano \u017Cadnego pola do zmiany. Dost\u0119pne: assignee, labels, add_labels, components, priority, description."
+      );
+    }
+    consumeWriteBudget(config2, "write");
+    await client.updateIssue(config2, issueKey, fields);
+    return `Zaktualizowano ${issueKey}: ${changed.join(" \xB7 ")} \u2014 ${config2.server}/browse/${issueKey}`;
   }
 };
 
@@ -22088,9 +22273,12 @@ var readTools = [
 ];
 var writeTools = [
   create_issue_default,
+  update_issue_default,
   add_comment_default,
+  add_attachment_default,
   transition_issue_default,
-  assign_to_epic_default
+  assign_to_epic_default,
+  link_issues_default
 ];
 
 // plugins/jira-tools/src/server.mjs
@@ -22123,7 +22311,7 @@ function registerTools(server, { getConfig = () => loadConfig(), client = jira_c
   return server;
 }
 function createServer(deps = {}) {
-  const server = new McpServer({ name: "jira", version: "0.2.0" });
+  const server = new McpServer({ name: "jira", version: "0.3.0" });
   registerTools(server, deps);
   return server;
 }

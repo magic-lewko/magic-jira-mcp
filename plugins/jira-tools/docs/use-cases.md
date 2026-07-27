@@ -57,7 +57,7 @@ Domyślnie wszystko jest **tylko do odczytu**. Najczęstsze potknięcia: `\` zam
 | Chcesz… | Wpisz |
 | --- | --- |
 | swoje zadania | `pokaż moje taski w PROJ z aktualnego sprintu` |
-| szczegóły ticketa | `pokaż szczegóły PROJ-42` |
+| szczegóły ticketa | `pokaż szczegóły PROJ-42` (domyślnie 5 ostatnich komentarzy — po całość: `…ze wszystkimi komentarzami`) |
 | kilka ticketów naraz | `pokaż PROJ-98..111` |
 | kto i kiedy zmieniał status | `pokaż historię statusów PROJ-42` |
 | aktywny sprint | `jaki jest aktywny sprint w PROJ?` |
@@ -80,19 +80,46 @@ Włączasz raz: tryb zapisu w `/jira-setup` + zgoda dla projektu w `/jira-config
 | --- | --- |
 | **tickety per platforma z opisu** ⭐ | `/jira-tools:create-task wylogowanie użytkownika na iOS i Web` |
 | pojedynczy ticket | `utwórz w PROJ taska "Poprawka walidacji e-mail"` |
+| przypisanie osoby / poprawki pól | `przypisz PROJ-42 do jkowalski` · `dodaj etykietę regression do PROJ-42` · `ustaw komponent Frontend w PROJ-42` |
 | komentarz | `dodaj komentarz do PROJ-42: wdrożone na UAT, proszę o retest` |
+| załącznik (screenshot) | najpierw **zapisz plik na dysku**, potem: `dodaj do PROJ-42 załącznik C:\zrzuty\blad.png` |
 | zmiana statusu | `przenieś PROJ-42 do In Progress` |
 | przypięcie stories do epica | `stories PROJ-101, PROJ-105..110 bez epica podepnij pod epic PROJ-200` |
+| powiązanie ticketów | `powiąż PROJ-42 z PROJ-43 i PROJ-44` (domyślnie „Relates"; też „blocks", „duplicate") |
 
 Przy tworzeniu zawsze: **podgląd → Twoje potwierdzenie → dopiero zapis** (+ wybór: sprint czy backlog). Bez potwierdzenia nic nie powstanie.
 Tickety od agenta dostają labelkę `ai-generated` (filtr w JQL: `labels = ai-generated`), a komentarze podpis — zawsze widać, co wygenerowało AI.
+
+⚠️ **Zrzut wklejony do czatu nie jest plikiem** — trafia tylko „do oczu" modelu, a narzędzia
+nie mają dostępu do jego bajtów. Żeby dołączyć screenshot do ticketa, zapisz go najpierw
+(np. Win+Shift+S → zapisz jako) i podaj ścieżkę.
+
+**Agent nie wymyśla treści za Ciebie.** Porządkuje to, co powiedziałeś, i dopytuje o braki
+(„nie podałeś kroków reprodukcji — jakie są?"). Jeśli czegoś nie chcesz uzupełniać, sekcja
+zostaje z `(do uzupełnienia)` zamiast zmyślonego opisu. Szablon ma wymuszać myślenie, nie
+produkować ładnie brzmiące wypełniacze.
+
+## Szablony ticketów (raz na projekt)
+
+W `/jira-tools:jira-config PROJ` ustawiasz, jak mają wyglądać opisy — osobno dla **bug /
+story / task**. Trzy drogi, w kolejności od najlepszej:
+
+| Sposób | Kiedy |
+| --- | --- |
+| **import z istniejących ticketów** ⭐ | masz w Jirze tickety napisane wzorcowo — podajesz klucze (`bug: PROJ-99, story: PROJ-100`), agent je czyta i wyciąga sam szkielet sekcji (bez Waszych treści) |
+| wklejasz własny | macie ustalony firmowy szablon |
+| propozycja agenta | nie macie nic — dostajesz sensowny start do akceptacji |
+
+Potem `/jira-tools:create-task` wypełnia dokładnie te sekcje.
 
 ## Dlaczego czasem odmówi? (celowo)
 
 - projekt bez zgody na zapis → odmowa,
 - tytuł identyczny z otwartym ticketem → odmowa + wskazanie istniejącego,
 - limit sesji: 10 utworzeń / 30 zapisów → twardy stop (ochrona przed pętlą),
-- zawsze 1 ticket na operację — tworzenia hurtem nie ma.
+- zawsze 1 ticket na operację — tworzenia hurtem nie ma,
+- próba zmiany ustawień bezpieczeństwa (`allowWrite`) → pytanie o Twoją zgodę; agent nie
+  włączy sobie zapisu sam.
 
 ## Coś nie działa?
 

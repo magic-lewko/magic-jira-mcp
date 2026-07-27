@@ -1,5 +1,8 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { registerTools } from '../../plugins/jira-tools/src/server.mjs'
 import { JiraError } from '../../plugins/jira-tools/src/jira-client.mjs'
@@ -31,7 +34,10 @@ function setup({ client = {}, config = CONFIG } = {}) {
 // --- registration gate --------------------------------------------------------
 
 test('real write tools registered only with allowWrite=true', () => {
-  const WRITE_TOOL_NAMES = ['create_issue', 'add_comment', 'transition_issue', 'assign_to_epic']
+  const WRITE_TOOL_NAMES = [
+    'create_issue', 'update_issue', 'add_comment', 'add_attachment',
+    'transition_issue', 'assign_to_epic', 'link_issues',
+  ]
   const withWrite = setup()
   for (const name of WRITE_TOOL_NAMES) {
     assert.ok(withWrite.has(name), `${name} should be registered`)
@@ -307,6 +313,134 @@ test('budget: defaults applied when config has none', () => {
   assert.throws(() => consumeWriteBudget({}, 'create'), /10\/10/)
 })
 
+// --- update_issue ----------------------------------------------------------------
+
+test('update_issue: assignee, priority and components map to Jira field shapes', async () => {
+  let sent = null
+  const tools = setup({
+    client: { updateIssue: async (_config, key, fields) => { sent = { key, fields }; return null } },
+  })
+  const result = await tools.get('update_issue').handler({
+    key: 'proj-42', assignee: 'mkurzempa', priority: 'High', components: ['Frontend'],
+  })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(sent, {
+    key: 'PROJ-42',
+    fields: {
+      assignee: { name: 'mkurzempa' },
+      priority: { name: 'High' },
+      components: [{ name: 'Frontend' }],
+    },
+  })
+  assert.match(result.content[0].text, /assignee → mkurzempa/)
+})
+
+test('update_issue: "unassigned" clears the assignee', async () => {
+  let sent = null
+  const tools = setup({
+    client: { updateIssue: async (_config, _key, fields) => { sent = fields; return null } },
+  })
+  const result = await tools.get('update_issue').handler({ key: 'PROJ-42', assignee: 'unassigned' })
+  assert.deepEqual(sent.assignee, { name: null })
+  assert.match(result.content[0].text, /nieprzypisany/)
+})
+
+test('update_issue: add_labels merges with existing labels instead of wiping them', async () => {
+  let sent = null
+  const tools = setup({
+    client: {
+      getIssue: async () => ({ key: 'PROJ-42', fields: { labels: ['UAT', 'mobile'] } }),
+      updateIssue: async (_config, _key, fields) => { sent = fields; return null },
+    },
+  })
+  await tools.get('update_issue').handler({ key: 'PROJ-42', add_labels: ['regression', 'UAT'] })
+  assert.deepEqual(sent.labels, ['UAT', 'mobile', 'regression'])
+})
+
+test('update_issue: labels alone replaces the whole list', async () => {
+  let sent = null
+  const tools = setup({
+    client: { updateIssue: async (_config, _key, fields) => { sent = fields; return null } },
+  })
+  await tools.get('update_issue').handler({ key: 'PROJ-42', labels: ['only-this'] })
+  assert.deepEqual(sent.labels, ['only-this'])
+})
+
+test('update_issue: no fields → readable error, nothing sent', async () => {
+  let called = false
+  const tools = setup({
+    client: { updateIssue: async () => { called = true; return null } },
+  })
+  const result = await tools.get('update_issue').handler({ key: 'PROJ-42' })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /Nie podano żadnego pola/)
+  assert.equal(called, false)
+})
+
+test('update_issue: respects the per-project write gate and the budget', async () => {
+  let called = false
+  const client = { updateIssue: async () => { called = true; return null } }
+
+  const foreign = setup({ client })
+  const blocked = await foreign.get('update_issue').handler({ key: 'OTHER-1', assignee: 'x' })
+  assert.equal(blocked.isError, true)
+  assert.match(blocked.content[0].text, /Zapis do projektu OTHER nie jest włączony/)
+  assert.equal(called, false)
+
+  const tight = setup({ config: { ...CONFIG, writeBudget: { creates: 10, total: 1 } }, client })
+  assert.equal((await tight.get('update_issue').handler({ key: 'PROJ-1', assignee: 'x' })).isError, undefined)
+  const exhausted = await tight.get('update_issue').handler({ key: 'PROJ-2', assignee: 'x' })
+  assert.equal(exhausted.isError, true)
+  assert.match(exhausted.content[0].text, /Limit zapisów/)
+})
+
+// --- add_attachment --------------------------------------------------------------
+
+test('add_attachment: uploads an existing file with its name and size', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jira-attach-'))
+  const file = join(dir, 'screenshot.png')
+  writeFileSync(file, Buffer.alloc(2048, 7))
+  let sent = null
+  try {
+    const tools = setup({
+      client: { addAttachment: async (_config, key, payload) => { sent = { key, payload }; return [{}] } },
+    })
+    const result = await tools.get('add_attachment').handler({ key: 'proj-42', path: file })
+    assert.equal(result.isError, undefined)
+    assert.equal(sent.key, 'PROJ-42')
+    assert.equal(sent.payload.filename, 'screenshot.png')
+    assert.equal(sent.payload.bytes.length, 2048)
+    assert.match(result.content[0].text, /Dodano załącznik "screenshot\.png" \(2 kB\) do PROJ-42/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('add_attachment: missing file → readable error, nothing uploaded', async () => {
+  let called = false
+  const tools = setup({
+    client: { addAttachment: async () => { called = true; return [{}] } },
+  })
+  const result = await tools.get('add_attachment').handler({
+    key: 'PROJ-42', path: join(tmpdir(), 'nie-ma-takiego-pliku-12345.png'),
+  })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /Nie znaleziono pliku/)
+  assert.match(result.content[0].text, /zapisać na dysku/)
+  assert.equal(called, false)
+})
+
+test('add_attachment: honours the per-project gate before touching the disk', async () => {
+  let called = false
+  const tools = setup({
+    client: { addAttachment: async () => { called = true; return [{}] } },
+  })
+  const result = await tools.get('add_attachment').handler({ key: 'OTHER-1', path: 'whatever.png' })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /Zapis do projektu OTHER nie jest włączony/)
+  assert.equal(called, false)
+})
+
 // --- assign_to_epic --------------------------------------------------------------
 
 test('assign_to_epic: expands ranges and posts the full list to the epic', async () => {
@@ -356,6 +490,77 @@ test('assign_to_epic: caps the number of keys per call', async () => {
   })
   assert.equal(result.isError, true)
   assert.match(result.content[0].text, /limit 20/)
+})
+
+// --- link_issues -----------------------------------------------------------------
+
+const LINK_TYPES = { issueLinkTypes: [{ name: 'Relates' }, { name: 'Blocks' }, { name: 'Duplicate' }] }
+
+test('link_issues: links source to each target with the default Relates type', async () => {
+  const links = []
+  const tools = setup({
+    client: {
+      listIssueLinkTypes: async () => LINK_TYPES,
+      linkIssues: async (_config, link) => { links.push(link); return null },
+    },
+  })
+  const result = await tools.get('link_issues').handler({ from: 'proj-1', to: ['PROJ-2', 'proj-3..4'] })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(links, [
+    { type: 'Relates', from: 'PROJ-1', to: 'PROJ-2' },
+    { type: 'Relates', from: 'PROJ-1', to: 'PROJ-3' },
+    { type: 'Relates', from: 'PROJ-1', to: 'PROJ-4' },
+  ])
+  assert.match(result.content[0].text, /Powiązano PROJ-1 \(Relates\) z: PROJ-2, PROJ-3, PROJ-4/)
+})
+
+test('link_issues: matches type case-insensitively', async () => {
+  let used = null
+  const tools = setup({
+    client: {
+      listIssueLinkTypes: async () => LINK_TYPES,
+      linkIssues: async (_config, link) => { used = link.type; return null },
+    },
+  })
+  await tools.get('link_issues').handler({ from: 'PROJ-1', to: ['PROJ-2'], type: 'blocks' })
+  assert.equal(used, 'Blocks')
+})
+
+test('link_issues: unknown type lists the available ones and links nothing', async () => {
+  let linked = false
+  const tools = setup({
+    client: {
+      listIssueLinkTypes: async () => LINK_TYPES,
+      linkIssues: async () => { linked = true; return null },
+    },
+  })
+  const result = await tools.get('link_issues').handler({ from: 'PROJ-1', to: ['PROJ-2'], type: 'Zależy' })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /Dostępne: "Relates", "Blocks", "Duplicate"/)
+  assert.equal(linked, false)
+})
+
+test('link_issues: drops the source key from targets and rejects an empty set', async () => {
+  const tools = setup({
+    client: { listIssueLinkTypes: async () => LINK_TYPES, linkIssues: async () => null },
+  })
+  const result = await tools.get('link_issues').handler({ from: 'PROJ-1', to: ['PROJ-1'] })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /co najmniej jedno zadanie docelowe/)
+})
+
+test('link_issues: per-project gate covers every touched project', async () => {
+  let linked = false
+  const tools = setup({
+    client: {
+      listIssueLinkTypes: async () => LINK_TYPES,
+      linkIssues: async () => { linked = true; return null },
+    },
+  })
+  const result = await tools.get('link_issues').handler({ from: 'PROJ-1', to: ['OTHER-2'] })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /Zapis do projektu OTHER nie jest włączony/)
+  assert.equal(linked, false)
 })
 
 // --- add_comment ---------------------------------------------------------------

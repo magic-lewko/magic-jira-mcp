@@ -29,14 +29,14 @@ Twoim zadaniem jest **ustrukturyzować to, co powiedział użytkownik, i dopyta�
 
 2. **Fill the template, not your imagination**: take `projects.<KEY>.taskTemplate.<type>` (when absent: a minimal Opis + Kryteria akceptacji skeleton) and map the user's words onto its sections. Mark every section the user did not cover.
 
-3. **Interview round for the gaps** (skip only when nothing is missing): ask about ALL missing sections in one AskUserQuestion, quoting the section names from the template. Fill in exactly what the user answers; unanswered sections get `(do uzupełnienia)`.
+3. **Interview round for the gaps** (skip only when nothing is missing): ask about ALL missing sections in one AskUserQuestion, quoting the section names from the template. Include **"do kogo przypisać (assignee)?"** in the same round (offer "nieprzypisany" as an option — never guess a person). Fill in exactly what the user answers; unanswered sections get `(do uzupełnienia)`, no assignee → leave unassigned.
 
 4. **DRY-RUN (mandatory), two parts**:
    - Full preview as a normal chat message — one section per ticket:
 
      ```markdown
      ### 1/2 · [iOS] Wylogowanie użytkownika
-     Typ: Task · Projekt: DC · Komponent: iOS · Labels: — · Epic: — · Sprint: (wg wyboru niżej)
+     Typ: Task · Projekt: DC · Komponent: iOS · Assignee: jkowalski · Labels: — · Epic: — · Sprint: (wg wyboru niżej)
 
      **Opis (wg szablonu projektu):**
      …
@@ -45,6 +45,8 @@ Twoim zadaniem jest **ustrukturyzować to, co powiedział użytkownik, i dopyta�
    - Then AskUserQuestion with a SHORT question (never paste ticket contents into the dialog — it truncates; refer to the preview above): create or not, and sprint placement ("Aktywny sprint «name» czy backlog?").
    - Over **6 tickets** → extra warning with the exact count and a separate confirmation.
 
-5. **Create** after confirmation: one `create_issue` per ticket, in order, with `sprint_id` when the user chose the sprint. Report each returned key + URL. Server rails (per-project opt-in, duplicate guard, write budget) — relay refusals verbatim and STOP; never use `allow_duplicate` unless the user explicitly says the duplicate is intended.
+5. **Create** after confirmation: one `create_issue` per ticket, in order, with `sprint_id` when the user chose the sprint and `assignee` when the user named one. Report each returned key + URL. Server rails (per-project opt-in, duplicate guard, write budget) — relay refusals verbatim and STOP; never use `allow_duplicate` unless the user explicitly says the duplicate is intended.
 
-6. **Summary**: created keys with links + where they landed; list anything skipped. If any ticket has `(do uzupełnienia)`, remind the user to fill it in.
+6. **Link the set** (when more than one ticket was created, or the user pointed at a related story): ask whether to link them and how — default **"Relates"**, linking every new ticket to the story if given, otherwise to each other via the first one as hub. On yes, call `link_issues` (`from` = story/first ticket, `to` = the rest). Relay any refusal verbatim. Skip silently for a single unrelated ticket.
+
+7. **Summary**: created keys with links + where they landed + how they were linked; list anything skipped. If any ticket has `(do uzupełnienia)`, remind the user to fill it in.

@@ -99,13 +99,16 @@ function mapHttpError(status, bodyText, what) {
  * @param {{method?: string, body?: object, what?: string, timeoutMs?: number}} [opts]
  * @returns {Promise<any>} parsed JSON (or null for 204)
  */
-export async function jiraFetch(config, path, { method = 'GET', body, what = path, timeoutMs = 30_000 } = {}) {
+export async function jiraFetch(config, path, { method = 'GET', body, form, what = path, timeoutMs = 30_000 } = {}) {
   const url = `${config.server}${path}`
   const headers = {
     Authorization: `Bearer ${config.token}`,
     Accept: 'application/json',
   }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
+  // Multipart uploads: fetch sets Content-Type (with boundary) itself; Jira
+  // additionally requires the XSRF opt-out header.
+  if (form !== undefined) headers['X-Atlassian-Token'] = 'no-check'
 
   debug(method, path)
   let res
@@ -113,7 +116,7 @@ export async function jiraFetch(config, path, { method = 'GET', body, what = pat
     res = await fetch(url, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: form ?? (body === undefined ? undefined : JSON.stringify(body)),
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (err) {
@@ -130,8 +133,9 @@ export async function jiraFetch(config, path, { method = 'GET', body, what = pat
     const text = await res.text().catch(() => '')
     throw mapHttpError(res.status, text, what)
   }
-  if (res.status === 204) return null
-  return res.json()
+  // Some write endpoints answer 201/204 with an empty body — tolerate it.
+  const text = await res.text()
+  return text ? JSON.parse(text) : null
 }
 
 /**
@@ -360,6 +364,20 @@ export function createIssue(config, fields) {
 }
 
 /**
+ * Update fields of an existing issue (Jira answers 204).
+ *
+ * @param {object} config
+ * @param {string} key
+ * @param {object} fields - partial Jira fields payload
+ * @returns {Promise<null>}
+ */
+export function updateIssue(config, key, fields) {
+  return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}`, {
+    method: 'PUT', body: { fields }, what: `aktualizacja ${key}`,
+  })
+}
+
+/**
  * Add a comment to an issue.
  *
  * @param {object} config
@@ -397,6 +415,49 @@ export function listTransitions(config, key) {
 export function doTransition(config, key, transitionId) {
   return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, {
     method: 'POST', body: { transition: { id: String(transitionId) } }, what: `zmiana statusu ${key}`,
+  })
+}
+
+/**
+ * Upload ONE file as an issue attachment (multipart; Jira requires the
+ * X-Atlassian-Token header, added by jiraFetch for form uploads).
+ *
+ * @param {object} config
+ * @param {string} key - issue key
+ * @param {{filename: string, bytes: Uint8Array}} file
+ * @returns {Promise<object[]>} created attachment entries
+ */
+export function addAttachment(config, key, { filename, bytes }) {
+  const form = new FormData()
+  form.append('file', new Blob([bytes]), filename)
+  return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}/attachments`, {
+    method: 'POST', form, what: `załącznik do ${key}`, timeoutMs: 60_000,
+  })
+}
+
+/**
+ * Available issue link types (names vary per instance: Relates, Blocks, …).
+ *
+ * @param {object} config
+ * @returns {Promise<{issueLinkTypes: object[]}>}
+ */
+export function listIssueLinkTypes(config) {
+  return jiraFetch(config, '/rest/api/2/issueLinkType', { what: 'typy powiązań' })
+}
+
+/**
+ * Link two issues (Jira answers 201, empty body). `from` is the outward side
+ * (e.g. for "Blocks": from blocks to).
+ *
+ * @param {object} config
+ * @param {{type: string, from: string, to: string}} link
+ * @returns {Promise<null>}
+ */
+export function linkIssues(config, { type, from, to }) {
+  return jiraFetch(config, '/rest/api/2/issueLink', {
+    method: 'POST',
+    body: { type: { name: type }, outwardIssue: { key: from }, inwardIssue: { key: to } },
+    what: `powiązanie ${from} ↔ ${to}`,
   })
 }
 

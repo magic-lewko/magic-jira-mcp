@@ -5,6 +5,20 @@ description: Interactive first-time setup of the Jira connection - asks for the 
 
 Guide the user through configuring the Jira connection. Respond in the user's language (this team usually speaks Polish). Never print the token back to the user once provided, never store it anywhere except the config file below.
 
+## Mode (from $ARGUMENTS)
+
+- **no flag / `--update`** — refresh an existing setup. Read the current config first and
+  offer each saved value as the default (the user just confirms or overrides). **Keep** the
+  `projects` section and everything not being changed.
+- **`--reset`** — clean slate. The current config may be stale (wrong board, old token).
+  First read it and show a one-line summary of what will be wiped (server, default project,
+  number of project profiles). Ask for an explicit confirmation. On yes: back it up to
+  `config.json.bak` next to the file, then write a BRAND NEW config from scratch — **do not
+  merge**, drop the old `projects` section entirely. The user reconfigures projects fresh
+  with `/jira-tools:jira-config` afterwards.
+
+If there is no config yet, both modes behave like a first-time setup.
+
 ## Steps
 
 1. **Collect settings** — ask the user for (one message, all questions at once):
@@ -19,7 +33,7 @@ Guide the user through configuring the Jira connection. Respond in the user's la
      the agent get an `ai-generated` label (filterable in JQL) and agent comments get a short
      signature, so the team can always tell human content from AI content.
 
-2. **Write the config file** to `~/.config/jira-tools/config.json` (Windows: `%USERPROFILE%\.config\jira-tools\config.json`). Create the directory if missing. Merge with existing content if the file already exists (do not drop an existing `projects` section). Shape:
+2. **Write the config file** to `~/.config/jira-tools/config.json` (Windows: `%USERPROFILE%\.config\jira-tools\config.json`). Create the directory if missing. In `--update`/default mode **merge** with existing content (never drop an existing `projects` section); in `--reset` mode write fresh, WITHOUT the old `projects`, after backing up to `config.json.bak`. Shape:
 
    ```json
    {
