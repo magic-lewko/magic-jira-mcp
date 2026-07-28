@@ -23,7 +23,7 @@ Sprawdzenie:
 /mcp
 ```
 
-## Konfiguracja (start w read-only)
+## Konfiguracja
 
 Czysto od zera (kasuje starą konfigurację, robi backup):
 
@@ -73,25 +73,6 @@ pokaż DC-1..3
 
 ```text
 pokaż historię statusów DC-5
-```
-
-## Próba zapisu w read-only (ma odmówić)
-
-```text
-utwórz w DC taska "Demo — test zapisu"
-```
-
-## Włączenie zapisu
-
-W `C:\Users\mlewk\.config\jira-tools\config.json` ustaw `"allowWrite": true` globalnie
-oraz `"allowWrite": true` w `projects.DC`, potem:
-
-```text
-/reload-plugins
-```
-
-```text
-/mcp
 ```
 
 ## Zapis

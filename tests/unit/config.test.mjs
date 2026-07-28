@@ -36,7 +36,6 @@ test('file alone is enough; defaults applied; trailing slash trimmed', () => {
   try {
     const config = loadConfig({ env: {}, path })
     assert.equal(config.server, 'https://jira.example.pl')
-    assert.equal(config.allowWrite, false)
     assert.equal(config.language, 'pl')
     assert.equal(config.defaultProject, undefined)
     assert.deepEqual(config.projects, {})
@@ -53,20 +52,6 @@ test('no env and no file → null (not configured)', () => {
 test('server without token (and vice versa) → null', () => {
   assert.equal(loadConfig({ env: { JIRA_SERVER: 'https://jira.example.pl' }, path: 'missing.json' }), null)
   assert.equal(loadConfig({ env: { JIRA_TOKEN: 'secret' }, path: 'missing.json' }), null)
-})
-
-test('allowWrite accepts boolean true and string "true" only', () => {
-  const base = { JIRA_SERVER: 'https://jira.example.pl', JIRA_TOKEN: 't' }
-  assert.equal(loadConfig({ env: { ...base, JIRA_ALLOW_WRITE: 'true' }, path: 'missing.json' }).allowWrite, true)
-  assert.equal(loadConfig({ env: { ...base, JIRA_ALLOW_WRITE: 'false' }, path: 'missing.json' }).allowWrite, false)
-  assert.equal(loadConfig({ env: { ...base, JIRA_ALLOW_WRITE: '1' }, path: 'missing.json' }).allowWrite, false)
-
-  const { dir, path } = tempConfig({ server: 'https://jira.example.pl', token: 't', allowWrite: true })
-  try {
-    assert.equal(loadConfig({ env: {}, path }).allowWrite, true)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
 })
 
 test('project profiles: saved profile wins, unknown project falls back to defaults', () => {

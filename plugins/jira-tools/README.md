@@ -52,7 +52,6 @@ Plik `~/.config/jira-tools/config.json` (Windows: `%USERPROFILE%\.config\jira-to
   "token": "<twój PAT>",
   "language": "pl",
   "defaultProject": "PROJ",
-  "allowWrite": false,
   "projects": {
     "PROJ": {
       "boardId": 123,
@@ -116,7 +115,7 @@ brak Node.js (`node -v` w terminalu) · wygasły token (wygeneruj nowy PAT).
 `get_epic_status`, `get_issue_changelog` (historia statusów), `get_current_user`,
 `get_project_config` (profil projektu).
 
-**Narzędzia zapisu (tylko z `allowWrite: true` + zgoda per projekt):** `create_issue`, `update_issue` (assignee, labels, komponenty, priorytet, opis), `add_comment`, `add_attachment` (plik z dysku, max 10 MB), `transition_issue`, `assign_to_epic`, `link_issues` (powiązania Relates/Blocks/…).
+**Narzędzia zapisu:** `create_issue`, `update_issue` (assignee, labels, komponenty, priorytet, opis), `add_comment`, `add_attachment` (plik z dysku, max 10 MB), `transition_issue`, `assign_to_epic`, `link_issues` (powiązania Relates/Blocks/…).
 
 **Skille:**
 
@@ -137,42 +136,25 @@ Poza skillami pytaj naturalnie: „które moje taski w PROJ zmieniły wczoraj st
 **Pełny katalog use case'ów z przykładowymi promptami** (ściąga dla PM/analityka/deva):
 [docs/use-cases.md](docs/use-cases.md).
 
-## Włączanie zapisu (opcjonalne, domyślnie wyłączony)
+## Zapis i bezpieczeństwo
 
-Zapis (`create_issue`, `add_comment`, `transition_issue` + skill `/jira-tools:create-task`)
-włącza się per użytkownik: `"allowWrite": true` w configu (albo env `JIRA_ALLOW_WRITE=true`),
-potem `/reload-plugins`. Bez flagi narzędzia zapisu w ogóle nie istnieją w serwerze.
+Zapis działa domyślnie — bez „trybu zapisu", bez włączania. Chronią przed pomyłką AI
+(nie przed użytkownikiem) bezpieczniki wbudowane w kod serwera:
 
-Wbudowane bezpieczniki (w kodzie serwera):
-
-- **bezpiecznik per projekt (opt-in)** — nawet w trybie zapisu projekt można zapisywać
-  TYLKO, gdy jego profil ma `"allowWrite": true` (`projects.KEY` w configu; pyta o to
-  `/jira-tools:jira-config`) albo klucz jest w `writeProjects` / env `JIRA_WRITE_PROJECTS`.
-  Działa od razu, bez restartu — projekty produkcyjne zostają read-only, dopóki ktoś
-  świadomie ich nie odblokuje,
-- **hook chroniący bezpieczniki** — plugin instaluje hook, który wymusza ręczne
-  potwierdzenie każdej próby zmiany pól `allowWrite` w configu (także sprytnych, typu
-  podmiana samego `false`→`true`); agent nie włączy sobie zapisu sam. Uwaga: w trybach
-  auto/bypassPermissions Claude Code pomija prompty — tam hook nie chroni,
+- **budżet zapisu na sesję** — domyślnie 10 utworzeń / 30 operacji łącznie; po przekroczeniu
+  serwer odmawia aż do restartu (`/reload-plugins`). To twardy stop przed niekontrolowaną
+  pętlą tworzenia. Zmiana limitu: `"writeBudget": {"creates": 10, "total": 30}` w configu
+  lub env `JIRA_WRITE_BUDGET_CREATES` / `JIRA_WRITE_BUDGET_TOTAL`,
 - **jeden ticket na wywołanie** — brak API batchowego,
-- **budżet zapisu na sesję** — domyślnie 10 utworzeń / 30 operacji zapisu łącznie; po
-  przekroczeniu serwer odmawia aż do restartu (`/reload-plugins`). Zmiana limitu: pole
-  `"writeBudget": {"creates": 10, "total": 30}` w configu lub env
-  `JIRA_WRITE_BUDGET_CREATES` / `JIRA_WRITE_BUDGET_TOTAL`,
 - **strażnik duplikatów** — próba utworzenia ticketa o tytule istniejącego, otwartego
-  zadania w projekcie zostaje odrzucona ze wskazaniem klucza (świadome obejście:
-  `allow_duplicate=true`),
-- `/jira-tools:create-task` ZAWSZE pokazuje pełny podgląd (dry-run) i czeka na Twoje
-  potwierdzenie, zanim cokolwiek utworzy.
+  zadania zostaje odrzucona ze wskazaniem klucza (świadome obejście: `allow_duplicate=true`),
+- `/jira-tools:create-task` ZAWSZE pokazuje pełny podgląd (dry-run) i czeka na potwierdzenie,
+- **oznaczanie treści AI (zawsze)** — tickety tworzone przez agenta dostają labelkę
+  `ai-generated` (filtr w JQL: `labels = ai-generated`), komentarze krótki podpis. Zawsze
+  wiadomo, co dodał człowiek, a co AI.
 
-**Oznaczanie treści AI:** domyślnie (`"aiLabel": true`, pyta o to `/jira-tools:jira-setup`)
-tickety tworzone przez agenta dostają labelkę `ai-generated` (odfiltrujesz je w JQL:
-`labels = ai-generated`), a komentarze — krótki podpis. Zawsze wiadomo, co dodał człowiek,
-a co wygenerowało AI.
-
-**Zalecenie:** przy pytaniu Claude Code o uprawnienie dla `create_issue` nie wybieraj
-„always allow" — zatwierdzanie każdego utworzenia ręcznie to ostatnia warstwa ochrony.
-Testy zapisu wykonuj wyłącznie na sandboksie testowym, nigdy na projekcie produkcyjnym.
+**Zalecenie:** przy pytaniu Claude Code o uprawnienie dla narzędzi zapisu nie wybieraj
+„always allow" — zatwierdzanie każdego zapisu ręcznie to ostatnia warstwa ochrony.
 
 ## Mniej pytań o uprawnienia (Claude Code, opcjonalnie)
 

@@ -49,8 +49,10 @@ function toHandler(tool, { getConfig, client }) {
 }
 
 /**
- * Register tools on a server-like object. Read tools always; write tools only
- * when the configuration allows writes at startup (SPEC §4.2).
+ * Register ALL tools (read + write). There is no write-mode: writes are
+ * available by default. The remaining safety lives inside the write tools
+ * (session budget against loops, duplicate guard) and in /create-task's
+ * mandatory dry-run, plus Claude Code's own per-call permission prompts.
  *
  * @param {{registerTool: Function}} server - McpServer or a test stub
  * @param {{getConfig?: () => object|null, client?: object}} [deps]
@@ -63,13 +65,8 @@ export function registerTools(
   { read = readTools, write = writeTools } = {},
 ) {
   const deps = { getConfig, client }
-  for (const tool of read) {
+  for (const tool of [...read, ...write]) {
     server.registerTool(tool.name, tool.config, toHandler(tool, deps))
-  }
-  if (getConfig()?.allowWrite === true) {
-    for (const tool of write) {
-      server.registerTool(tool.name, tool.config, toHandler(tool, deps))
-    }
   }
   return server
 }
@@ -81,7 +78,7 @@ export function registerTools(
  * @returns {McpServer}
  */
 export function createServer(deps = {}) {
-  const server = new McpServer({ name: 'jira', version: '0.3.0' })
+  const server = new McpServer({ name: 'jira', version: '0.4.0' })
   registerTools(server, deps)
   return server
 }

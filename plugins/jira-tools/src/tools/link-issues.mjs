@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { expandKeys, JiraError } from '../jira-client.mjs'
-import { assertProjectWritable, consumeWriteBudget } from '../write-guard.mjs'
+import { consumeWriteBudget } from '../write-guard.mjs'
 
 /** Cap: linking one source to a handful of targets, not a fan-out storm. */
 const MAX_TARGETS = 20
@@ -50,9 +50,6 @@ export default {
       throw new JiraError(`Nieznany typ powiązania "${type}". Dostępne: ${names}.`)
     }
 
-    for (const project of new Set([source, ...targets].map((k) => k.split('-')[0]))) {
-      assertProjectWritable(config, project)
-    }
     for (let i = 0; i < targets.length; i++) consumeWriteBudget(config, 'write')
 
     for (const target of targets) {

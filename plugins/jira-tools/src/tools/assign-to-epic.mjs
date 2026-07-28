@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { expandKeys, JiraError } from '../jira-client.mjs'
-import { assertProjectWritable, consumeWriteBudget } from '../write-guard.mjs'
+import { consumeWriteBudget } from '../write-guard.mjs'
 
 /** Hard cap per call — Agile API allows 50, we stay far below on purpose. */
 const MAX_KEYS = 20
@@ -41,8 +41,6 @@ export default {
       throw new JiraError(`Za dużo zadań naraz (${expanded.length}, limit ${MAX_KEYS}). Podziel na mniejsze partie.`)
     }
 
-    const projects = new Set([epic, ...expanded].map((k) => k.split('-')[0]))
-    for (const project of projects) assertProjectWritable(config, project)
     for (let i = 0; i < expanded.length; i++) consumeWriteBudget(config, 'write')
 
     await client.addIssuesToEpic(config, epic, expanded)

@@ -12,7 +12,7 @@ const fixture = JSON.parse(
   readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'issue-full.json'), 'utf8'),
 )
 
-const CONFIG = { server: 'https://jira.example.pl', token: 't', allowWrite: false, projects: {} }
+const CONFIG = { server: 'https://jira.example.pl', token: 't', projects: {} }
 
 /** Minimal server stub capturing registered tools. */
 function stubServer() {
@@ -48,19 +48,11 @@ test('all read tools are registered', () => {
   assert.equal(readTools.length, expected.length)
 })
 
-test('write tools are NOT registered without allowWrite', () => {
-  const tools = setup({ write: [FAKE_WRITE_TOOL] })
-  assert.equal(tools.has('create_issue'), false)
-})
-
-test('write tools ARE registered with allowWrite=true', () => {
-  const tools = setup({ config: { ...CONFIG, allowWrite: true }, write: [FAKE_WRITE_TOOL] })
-  assert.equal(tools.has('create_issue'), true)
-})
-
-test('write tools are NOT registered when config is missing entirely', () => {
-  const tools = setup({ config: null, write: [FAKE_WRITE_TOOL] })
-  assert.equal(tools.has('create_issue'), false)
+test('write tools are always registered (no write-mode gate)', () => {
+  assert.equal(setup({ write: [FAKE_WRITE_TOOL] }).has('create_issue'), true)
+  // even with no config at all — the tools exist; the handler returns setup
+  // instructions until configured, and the budget/dry-run guard the writes.
+  assert.equal(setup({ config: null, write: [FAKE_WRITE_TOOL] }).has('create_issue'), true)
 })
 
 // --- unconfigured behaviour ---------------------------------------------------

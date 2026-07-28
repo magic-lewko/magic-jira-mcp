@@ -10,12 +10,10 @@ Guide the user through configuring the Jira connection. Respond in the user's la
 - **no flag / `--update`** — refresh an existing setup. Read the current config first and
   offer each saved value as the default (the user just confirms or overrides). **Keep** the
   `projects` section and everything not being changed.
-- **`--reset`** — clean slate. The current config may be stale (wrong board, old token).
-  First read it and show a one-line summary of what will be wiped (server, default project,
-  number of project profiles). Ask for an explicit confirmation. On yes: back it up to
-  `config.json.bak` next to the file, then write a BRAND NEW config from scratch — **do not
-  merge**, drop the old `projects` section entirely. The user reconfigures projects fresh
-  with `/jira-tools:jira-config` afterwards.
+- **`--reset`** — clean slate. First read the current config and show a one-line summary of
+  what will be wiped (server, default project, number of project profiles). Ask for an
+  explicit confirmation. On yes: back it up to `config.json.bak` next to the file, then write
+  a BRAND NEW config from scratch — **do not merge**, drop the old `projects` section entirely.
 
 If there is no config yet, both modes behave like a first-time setup.
 
@@ -26,12 +24,6 @@ If there is no config yet, both modes behave like a first-time setup.
    - Personal Access Token. Tell them how to generate one: Jira → click your avatar (top right) → **Personal Access Tokens** → **Create token** (no expiry or long expiry recommended). Ask them to paste the token.
    - Preferred language for generated ticket content: `pl` or `en` (default `pl`).
    - Default project key (optional, e.g. `PROJ`).
-   - **Work mode: read-only (recommended default) or with write access?** Explain in one
-     sentence: write mode adds create/comment/transition tools, and even then each project
-     must additionally be opted in for writes during `/jira-config` (per-project safety switch).
-   - **Mark AI-created content?** (`aiLabel`, default yes — recommended): issues created by
-     the agent get an `ai-generated` label (filterable in JQL) and agent comments get a short
-     signature, so the team can always tell human content from AI content.
 
 2. **Write the config file** to `~/.config/jira-tools/config.json` (Windows: `%USERPROFILE%\.config\jira-tools\config.json`). Create the directory if missing. In `--update`/default mode **merge** with existing content (never drop an existing `projects` section); in `--reset` mode write fresh, WITHOUT the old `projects`, after backing up to `config.json.bak`. Shape:
 
@@ -40,14 +32,9 @@ If there is no config yet, both modes behave like a first-time setup.
      "server": "https://jira.example.pl",
      "token": "<token>",
      "language": "pl",
-     "defaultProject": "PROJ",
-     "allowWrite": false,
-     "aiLabel": true
+     "defaultProject": "PROJ"
    }
    ```
-
-   `allowWrite` reflects the user's work-mode answer (`false` for read-only). Remind them
-   that changing it later requires `/reload-plugins`.
 
 3. **Restrict permissions** (POSIX only): `chmod 600 ~/.config/jira-tools/config.json`. On Windows skip this step silently.
 
@@ -55,4 +42,4 @@ If there is no config yet, both modes behave like a first-time setup.
    - 401 → the token is wrong/expired; ask for a fresh one and update the file.
    - Connection error/timeout → ask the user to check the URL and VPN.
 
-5. **Suggest the next step**: run `/jira-tools:jira-config <PROJECT>` to save a project profile (board, status columns, epic link field) — it makes sprint reports and epic queries much more accurate.
+5. **Suggest the next step**: run `/jira-tools:jira-config <PROJECT>` to save a project profile (board, status columns, epic link field, templates) — it makes sprint reports, epic queries and ticket creation much more accurate.

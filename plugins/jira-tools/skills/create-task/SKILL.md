@@ -21,7 +21,7 @@ Twoim zadaniem jest **ustrukturyzować to, co powiedział użytkownik, i dopyta�
 - **Create at most the previewed set** — one `create_issue` call per ticket, sequentially.
 - **STOP immediately on the first creation error.** Report what was created and what was skipped; never blindly retry (on a retry check `search_issues` first).
 - If a server refusal looks like a plugin bug (e.g. malformed-JQL/400), report it and stop — do NOT invent workarounds (renaming conventions, bypass flags) and do NOT persist such workarounds to memory.
-- No write tools available → writes are disabled (`allowWrite: false`): tell the user to enable them in the config + `/reload-plugins`. No workarounds.
+- If a write is refused because the session budget is exhausted, relay it and STOP — do not restart the server or raise the limit without the user explicitly asking.
 
 ## Steps
 

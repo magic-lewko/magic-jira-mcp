@@ -72,9 +72,9 @@ Domyślnie wszystko jest **tylko do odczytu**. Najczęstsze potknięcia: `\` zam
 
 Raport sprintu = 5 sekcji: bez ruchu ≥3 dni · świeże komentarze w niedokończonych · On Hold + powód · braki opisu/etykiet/komponentu · Done wczoraj.
 
-## Zapis — tworzenie i zmiany (wymaga włączenia)
+## Zapis — tworzenie i zmiany
 
-Włączasz raz: tryb zapisu w `/jira-setup` + zgoda dla projektu w `/jira-config`. Bez tego Jira jest nietykalna.
+Działa od razu, bez włączania. Tworzenie zawsze pokazuje podgląd i czeka na Twoje potwierdzenie.
 
 | Chcesz… | Wpisz |
 | --- | --- |
@@ -114,12 +114,9 @@ Potem `/jira-tools:create-task` wypełnia dokładnie te sekcje.
 
 ## Dlaczego czasem odmówi? (celowo)
 
-- projekt bez zgody na zapis → odmowa,
 - tytuł identyczny z otwartym ticketem → odmowa + wskazanie istniejącego,
 - limit sesji: 10 utworzeń / 30 zapisów → twardy stop (ochrona przed pętlą),
-- zawsze 1 ticket na operację — tworzenia hurtem nie ma,
-- próba zmiany ustawień bezpieczeństwa (`allowWrite`) → pytanie o Twoją zgodę; agent nie
-  włączy sobie zapisu sam.
+- zawsze 1 ticket na operację — tworzenia hurtem nie ma.
 
 ## Coś nie działa?
 

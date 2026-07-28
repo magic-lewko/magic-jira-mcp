@@ -20,9 +20,6 @@ async function handshake(entry) {
       ...process.env,
       JIRA_SERVER: 'https://jira.example.pl',
       JIRA_TOKEN: 'test-token',
-      // Explicit read-only: env beats any config file on the developer machine,
-      // so the "write tools absent" assertion stays deterministic.
-      JIRA_ALLOW_WRITE: 'false',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -72,7 +69,7 @@ async function handshake(entry) {
     const names = list.result.tools.map((t) => t.name)
     assert.ok(names.includes('search_issues'), `tools/list should include search_issues, got: ${names}`)
     assert.ok(names.includes('get_issue'), 'tools/list should include get_issue')
-    assert.ok(!names.includes('create_issue'), 'write tools must be absent without JIRA_ALLOW_WRITE')
+    assert.ok(names.includes('create_issue'), 'write tools are always registered (no write-mode)')
   } finally {
     child.kill()
   }

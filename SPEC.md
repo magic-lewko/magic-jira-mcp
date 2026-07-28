@@ -96,10 +96,12 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
 | `update_issue`     | `key`, `assignee?`, `labels?`, `add_labels?`, `components?`, `priority?`, `description?`                 | Edycja istniejącego zgłoszenia (biała lista pól). `labels`/`components` zastępują listy, `add_labels` dokłada (read-modify-write). Status → `transition_issue`, epic → `assign_to_epic`. |
 | `add_attachment`   | `key`, `path`, `filename?`                                                                              | Wysyła JEDEN plik z dysku jako załącznik (multipart + `X-Atlassian-Token: no-check`, limit 10 MB). Ścieżka wyłącznie jawnie podana przez użytkownika — bez globów. **Obraz wklejony do rozmowy nie jest plikiem**: trafia tylko do kontekstu modelu, narzędzia nie mają dostępu do jego bajtów (potwierdzone w dokumentacji), więc trzeba go najpierw zapisać na dysku. |
 | `link_issues`      | `from`, `to[]` (zakresy, max 20), `type?` (domyślnie „Relates")                                         | Tworzy powiązania między zgłoszeniami (POST `/rest/api/2/issueLink`). Typ dopasowany case-insensitive do typów instancji; przy braku — lista dostępnych. `create-task` proponuje podlinkowanie ticketów per platforma jednej story. |
-| `assign_to_epic`   | `epic_key`, `keys[]` (zakresy `PROJ-98..111`, max 20)                                                   | Przypina istniejące zadania do epica (Agile API). Use case analityka: „stories z release'a bez epica → podepnij pod epic". Każde zadanie liczy się do budżetu sesji; wszystkie dotknięte projekty muszą mieć zgodę na zapis. |
+| `assign_to_epic`   | `epic_key`, `keys[]` (zakresy `PROJ-98..111`, max 20)                                                   | Przypina istniejące zadania do epica (Agile API). Use case analityka: „stories z release'a bez epica → podepnij pod epic". Każde zadanie liczy się do budżetu sesji. |
 
-**Zasada bezpieczeństwa zapisu:** narzędzia zapisu są rejestrowane w serwerze TYLKO gdy
-`JIRA_ALLOW_WRITE=true` w konfiguracji. Domyślnie serwer jest read-only.
+**Zasada bezpieczeństwa zapisu:** NIE ma „trybu zapisu" — wszystkie narzędzia (odczyt i zapis)
+są rejestrowane zawsze, a zapis działa domyślnie. Bezpieczniki chronią przed pomyłką AI,
+nie przed użytkownikiem. Bez configu każde narzędzie zwraca instrukcję setupu, więc nic nie
+zostanie zapisane przed konfiguracją.
 
 **Bezpieczniki zapisu (egzekwowane w kodzie serwera, nie w instrukcjach skilli):**
 
@@ -117,25 +119,10 @@ Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zw
    który dla świeżo utworzonych ticketów aktualizuje się z opóźnieniem — dwa identyczne
    utworzenia w odstępie sekund mogą oba przejść. Twardym zabezpieczeniem przed pętlą jest
    budżet sesji (p.2), nie ten strażnik.
-4. **Bezpiecznik per projekt (opt-in)** — nawet w trybie zapisu projekt jest zapisywalny
-   TYLKO gdy jego profil ma `"allowWrite": true` (sekcja `projects.KEY`) albo klucz widnieje
-   w `writeProjects` / env `JIRA_WRITE_PROJECTS`. Sprawdzane przy każdym wywołaniu (zmiana
-   działa bez restartu); projekt bez jawnej zgody pozostaje read-only. `/jira-setup` pyta
-   o tryb pracy (read-only/zapis) globalnie, `/jira-config` pyta o zgodę per projekt.
-5. **Globalna flaga sprawdzana też per wywołanie** — rejestracja narzędzi dzieje się przy
-   starcie serwera, więc wyłączenie `allowWrite` w configu odcina zapis natychmiast, nawet
-   zanim ktoś zrobi `/reload-plugins` (narzędzia mogą być jeszcze widoczne, ale każda
-   operacja zwraca odmowę).
-6. **Hook chroniący bezpieczniki** (`hooks/hooks.json` + `hooks/guard-config.mjs`,
-   dystrybuowane w pluginie) — PreToolUse na Edit/Write/MultiEdit/Bash: każda operacja,
-   która zmieniłaby wartość `allowWrite` (globalną lub per projekt) w
-   `~/.config/jira-tools/config.json`, wymusza ręczne potwierdzenie człowieka
-   (`permissionDecision: "ask"`). Edycje są symulowane i porównywane wartościami, więc
-   trik `"false"→"true"` bez słowa "allowWrite" też jest łapany. Ograniczenie platformy:
-   w trybach auto/bypassPermissions prompt nie wystąpi.
+4. **Obowiązkowy dry-run w `/create-task`** — pełny podgląd i potwierdzenie przed każdym
+   utworzeniem; plus własne prompty uprawnień Claude Code przy każdym wywołaniu narzędzia.
 
-**Oznaczanie treści AI (transparentność, nie bezpiecznik):** przy `aiLabel: true`
-(domyślne; pyta o to `/jira-setup`, env `JIRA_AI_LABEL`) `create_issue` dokłada w kodzie
+**Oznaczanie treści AI (transparentność, zawsze włączone):** `create_issue` dokłada w kodzie
 labelkę `ai-generated` (filtrowalna: `labels = ai-generated`), a `add_comment` dokleja
 stały podpis `_(ai-generated · jira-tools)_` — komentarzy Jira nie labelkuje.
 
@@ -153,7 +140,7 @@ stały podpis `_(ai-generated · jira-tools)_` — komentarzy Jira nie labelkuje
 
 Kolejność ładowania (pierwsze wygrane):
 
-1. Zmienne środowiskowe: `JIRA_SERVER`, `JIRA_TOKEN`, `JIRA_ALLOW_WRITE`, `JIRA_DEFAULT_PROJECT`, `JIRA_LANG`.
+1. Zmienne środowiskowe: `JIRA_SERVER`, `JIRA_TOKEN`, `JIRA_DEFAULT_PROJECT`, `JIRA_LANG`.
 2. Plik `~/.config/jira-tools/config.json` (prawa 600 przy zapisie).
 3. Brak → serwer startuje, ale każde narzędzie zwraca instrukcję: "uruchom /jira-tools:jira-setup".
 
@@ -173,7 +160,6 @@ nazwy statusów i pól:
   "server": "https://jira.example.pl",
   "token": "…",
   "language": "pl",
-  "allowWrite": false,
   "defaultProject": "DC",
   "projects": {
     "DC": {
@@ -282,7 +268,7 @@ Mock `globalThis.fetch`. Pokryj:
 - mapowanie błędów (401/404/500/timeout),
 - formatowanie kompaktowe (snapshot na przykładowym JSON-ie ticketa),
 - config: precedencja env > plik > brak,
-- to, że narzędzia zapisu NIE są zarejestrowane bez `JIRA_ALLOW_WRITE`.
+- to, że wszystkie narzędzia (odczyt + zapis) są zawsze zarejestrowane, a bez configu każde zwraca instrukcję setupu.
 
 ### 8.2 Integracyjne (opt-in, read-only)
 

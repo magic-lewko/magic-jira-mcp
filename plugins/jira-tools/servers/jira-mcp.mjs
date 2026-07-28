@@ -21135,16 +21135,13 @@ function loadConfig({ env = process.env, path = configPath() } = {}) {
   const server = env.JIRA_SERVER || file.server;
   const token = env.JIRA_TOKEN || file.token;
   if (!server || !token) return null;
-  const allowWriteRaw = env.JIRA_ALLOW_WRITE ?? file.allowWrite;
   return {
     server: trimTrailingSlashes(String(server)),
     token: String(token),
-    allowWrite: allowWriteRaw === true || allowWriteRaw === "true",
     defaultProject: env.JIRA_DEFAULT_PROJECT || file.defaultProject || void 0,
     language: env.JIRA_LANG || file.language || "pl",
     projects: typeof file.projects === "object" && file.projects !== null ? file.projects : {},
-    writeProjects: parseProjectList(env.JIRA_WRITE_PROJECTS, file.writeProjects),
-    aiLabel: defaultTrue(env.JIRA_AI_LABEL ?? file.aiLabel),
+    // Loop protection only — writes are available by default (no write-mode).
     writeBudget: {
       creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
       total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30
@@ -21154,15 +21151,6 @@ function loadConfig({ env = process.env, path = configPath() } = {}) {
 function positiveInt(value) {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : void 0;
-}
-function defaultTrue(value) {
-  return value === void 0 || value === null || !(value === false || value === "false");
-}
-function parseProjectList(envList, fileList) {
-  const fromEnv = String(envList ?? "").split(",");
-  const fromFile = Array.isArray(fileList) ? fileList : [];
-  const keys = [...fromEnv, ...fromFile].map((k) => String(k).trim().toUpperCase()).filter(Boolean);
-  return [...new Set(keys)];
 }
 function getProjectProfile(config2, projectKey) {
   const profile = config2?.projects?.[String(projectKey).toUpperCase()] ?? {};
@@ -21465,20 +21453,6 @@ function consumeWriteBudget(config2, kind) {
   counters.total += 1;
   if (kind === "create") counters.creates += 1;
 }
-function assertProjectWritable(config2, projectKey) {
-  if (config2?.allowWrite !== true) {
-    throw new JiraError(
-      "Tryb zapisu jest wy\u0142\u0105czony (allowWrite: false) \u2014 operacja odrzucona. Je\u015Bli narz\u0119dzia zapisu s\u0105 nadal widoczne, serwer dzia\u0142a na starej konfiguracji: /reload-plugins."
-    );
-  }
-  const key = String(projectKey).trim().toUpperCase();
-  const profileAllows = config2?.projects?.[key]?.allowWrite === true;
-  const listAllows = (config2?.writeProjects ?? []).includes(key);
-  if (profileAllows || listAllows) return;
-  throw new JiraError(
-    `Zapis do projektu ${key} nie jest w\u0142\u0105czony \u2014 to bezpiecznik per projekt. Aby \u015Bwiadomie go w\u0142\u0105czy\u0107, dopisz "allowWrite": true w sekcji projects.${key} pliku ~/.config/jira-tools/config.json (dzia\u0142a od razu, bez restartu) albo ustaw env JIRA_WRITE_PROJECTS=${key}.`
-  );
-}
 function normalizeSummary(summary) {
   return String(summary ?? "").toLowerCase().replaceAll(/\s+/g, " ").trim();
 }
@@ -21520,7 +21494,6 @@ var add_attachment_default = {
    */
   async run({ key, path, filename }, { config: config2, client }) {
     const issueKey = key.trim().toUpperCase();
-    assertProjectWritable(config2, issueKey.split("-")[0]);
     let size;
     try {
       const stats = statSync(path);
@@ -21559,11 +21532,10 @@ var add_comment_default = {
    */
   async run({ key, body }, { config: config2, client }) {
     const issueKey = key.trim().toUpperCase();
-    assertProjectWritable(config2, issueKey.split("-")[0]);
     consumeWriteBudget(config2, "write");
-    const text = config2.aiLabel !== false ? `${body}
+    const text = `${body}
 
-_(ai-generated \xB7 jira-tools)_` : body;
+_(ai-generated \xB7 jira-tools)_`;
     await client.addComment(config2, issueKey, text);
     return `Dodano komentarz do ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
   }
@@ -21595,8 +21567,6 @@ var assign_to_epic_default = {
     if (expanded.length > MAX_KEYS) {
       throw new JiraError(`Za du\u017Co zada\u0144 naraz (${expanded.length}, limit ${MAX_KEYS}). Podziel na mniejsze partie.`);
     }
-    const projects = new Set([epic, ...expanded].map((k) => k.split("-")[0]));
-    for (const project of projects) assertProjectWritable(config2, project);
     for (let i = 0; i < expanded.length; i++) consumeWriteBudget(config2, "write");
     await client.addIssuesToEpic(config2, epic, expanded);
     return `Przypisano ${expanded.length} zada\u0144 do epica ${epic}: ${expanded.join(", ")} \u2014 ${config2.server}/browse/${epic}`;
@@ -21642,7 +21612,6 @@ var create_issue_default = {
   async run(args, { config: config2, client }) {
     const project = args.project.trim().toUpperCase();
     const summary = args.summary.trim();
-    assertProjectWritable(config2, project);
     if (!args.allow_duplicate) {
       const duplicate = await findDuplicate(config2, client, project, summary);
       if (duplicate) {
@@ -21659,8 +21628,8 @@ var create_issue_default = {
     if (args.description) fields.description = args.description;
     if (args.components?.length) fields.components = args.components.map((name) => ({ name }));
     const labels = [...args.labels ?? []];
-    if (config2.aiLabel !== false && !labels.includes("ai-generated")) labels.push("ai-generated");
-    if (labels.length) fields.labels = labels;
+    if (!labels.includes("ai-generated")) labels.push("ai-generated");
+    fields.labels = labels;
     if (args.assignee) fields.assignee = { name: args.assignee };
     if (args.epic_key) {
       const epicField = await resolveField(config2, client, project, EPIC_FIELD);
@@ -21707,9 +21676,6 @@ var link_issues_default = {
     if (!match) {
       const names = [...new Set(issueLinkTypes.map((t) => `"${t.name}"`))].join(", ") || "(brak)";
       throw new JiraError(`Nieznany typ powi\u0105zania "${type}". Dost\u0119pne: ${names}.`);
-    }
-    for (const project of new Set([source, ...targets].map((k) => k.split("-")[0]))) {
-      assertProjectWritable(config2, project);
     }
     for (let i = 0; i < targets.length; i++) consumeWriteBudget(config2, "write");
     for (const target of targets) {
@@ -21902,7 +21868,6 @@ var transition_issue_default = {
    */
   async run({ key, transition_name }, { config: config2, client }) {
     const issueKey = key.trim().toUpperCase();
-    assertProjectWritable(config2, issueKey.split("-")[0]);
     const { transitions = [] } = await client.listTransitions(config2, issueKey);
     const wanted = transition_name.trim().toLowerCase();
     const match = transitions.find((t) => t.name?.toLowerCase() === wanted);
@@ -21942,7 +21907,6 @@ var update_issue_default = {
    */
   async run(args, { config: config2, client }) {
     const issueKey = args.key.trim().toUpperCase();
-    assertProjectWritable(config2, issueKey.split("-")[0]);
     const fields = {};
     const changed = [];
     if (args.assignee !== void 0) {
@@ -22300,18 +22264,13 @@ function toHandler(tool, { getConfig, client }) {
 }
 function registerTools(server, { getConfig = () => loadConfig(), client = jira_client_exports } = {}, { read = readTools, write = writeTools } = {}) {
   const deps = { getConfig, client };
-  for (const tool of read) {
+  for (const tool of [...read, ...write]) {
     server.registerTool(tool.name, tool.config, toHandler(tool, deps));
-  }
-  if (getConfig()?.allowWrite === true) {
-    for (const tool of write) {
-      server.registerTool(tool.name, tool.config, toHandler(tool, deps));
-    }
   }
   return server;
 }
 function createServer(deps = {}) {
-  const server = new McpServer({ name: "jira", version: "0.3.0" });
+  const server = new McpServer({ name: "jira", version: "0.4.0" });
   registerTools(server, deps);
   return server;
 }

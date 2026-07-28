@@ -16,14 +16,7 @@ Build a project profile so the other Jira skills stop guessing status names. Res
    - Read the current file, deep-merge (existing keys the tool did not return must survive), write back.
    - Never touch `server`/`token` values while editing.
 
-4. **Ask about writes for THIS project** (the per-project safety switch): "Włączyć zapis
-   (tworzenie ticketów, komentarze, zmiany statusu) dla tego projektu? Domyślnie NIE —
-   projekt pozostaje read-only nawet w trybie zapisu." Only on an explicit yes, add
-   `"allowWrite": true` inside `projects.<PROJECTKEY>`. This takes effect immediately
-   (checked per call); the write tools themselves additionally require the global
-   `allowWrite: true` + `/reload-plugins`.
-
-5. **Ask about team conventions for this board** (skip when the profile already has them,
+4. **Ask about team conventions for this board** (skip when the profile already has them,
    unless the user wants to change them):
    - Platforms used in this project — propose the default `iOS, Android, Web, Backend`
      and let the user adjust (some boards have only Web, some add e.g. Analytics).
@@ -56,4 +49,4 @@ Build a project profile so the other Jira skills stop guessing status names. Res
    the sections they skipped, instead of inventing content. The agent fills sections only
    with what the user provides.
 
-6. Show the user a short summary of what was saved: board, status column order, epic link field, component count, platforms + title convention, and whether writes are enabled for this project. Mention that `/jira-tools:sprint-health` and epic queries will now use these statuses.
+5. Show the user a short summary of what was saved: board, status column order, epic link field, component count, platforms + title convention. Mention that `/jira-tools:sprint-health` and epic queries will now use these statuses.

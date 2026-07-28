@@ -74,16 +74,13 @@ export function loadConfig({ env = process.env, path = configPath() } = {}) {
   const token = env.JIRA_TOKEN || file.token
   if (!server || !token) return null
 
-  const allowWriteRaw = env.JIRA_ALLOW_WRITE ?? file.allowWrite
   return {
     server: trimTrailingSlashes(String(server)),
     token: String(token),
-    allowWrite: allowWriteRaw === true || allowWriteRaw === 'true',
     defaultProject: env.JIRA_DEFAULT_PROJECT || file.defaultProject || undefined,
     language: env.JIRA_LANG || file.language || 'pl',
     projects: typeof file.projects === 'object' && file.projects !== null ? file.projects : {},
-    writeProjects: parseProjectList(env.JIRA_WRITE_PROJECTS, file.writeProjects),
-    aiLabel: defaultTrue(env.JIRA_AI_LABEL ?? file.aiLabel),
+    // Loop protection only — writes are available by default (no write-mode).
     writeBudget: {
       creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
       total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30,
@@ -100,32 +97,6 @@ export function loadConfig({ env = process.env, path = configPath() } = {}) {
 function positiveInt(value) {
   const n = Number(value)
   return Number.isInteger(n) && n > 0 ? n : undefined
-}
-
-/**
- * Boolean option that defaults to TRUE when unset; only an explicit
- * false/"false" turns it off.
- *
- * @param {unknown} value
- * @returns {boolean}
- */
-function defaultTrue(value) {
-  return value === undefined || value === null || !(value === false || value === 'false')
-}
-
-/**
- * Merge project keys allowed to write from env (comma list) and config file
- * (array). Uppercased, deduplicated.
- *
- * @param {string|undefined} envList - e.g. "DC,PROJ"
- * @param {unknown} fileList - e.g. ["DC"]
- * @returns {string[]}
- */
-function parseProjectList(envList, fileList) {
-  const fromEnv = String(envList ?? '').split(',')
-  const fromFile = Array.isArray(fileList) ? fileList : []
-  const keys = [...fromEnv, ...fromFile].map((k) => String(k).trim().toUpperCase()).filter(Boolean)
-  return [...new Set(keys)]
 }
 
 /**

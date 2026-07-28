@@ -67,12 +67,11 @@ if (!server || !token) {
   process.exit(1)
 }
 
-/** Full write-enabled config for the sandbox project. */
+/** Config for the sandbox project (no write-mode; budget generous for the run). */
 const config = {
-  server, token, language: 'pl', allowWrite: true, aiLabel: true,
+  server, token, language: 'pl',
   defaultProject: PROJECT,
-  projects: { [PROJECT]: { allowWrite: true } },
-  writeProjects: [PROJECT],
+  projects: {},
   writeBudget: { creates: 50, total: 200 },
 }
 const ctx = { config, client }
@@ -193,13 +192,6 @@ async function writePhase() {
     try { await run(createIssue, { project: PROJECT, issue_type: 'Task', summary: existing.fields.summary }) }
     catch (e) { refused = /istnieje już otwarte zadanie/.test(e.message) }
     must(refused, 'strażnik duplikatów nie odrzucił znanego duplikatu')
-    return 'odmowa OK'
-  })
-  await check('per-project gate: obcy projekt → odmowa', async () => {
-    let refused = false
-    try { await run(createIssue, { project: 'ZZZ', issue_type: 'Task', summary: `${stamp} obcy` }) }
-    catch (e) { refused = /nie jest włączony/.test(e.message) }
-    must(refused, 'bramka per projekt nie zadziałała')
     return 'odmowa OK'
   })
   await check('update_issue (labels + priorytet)', async () => {

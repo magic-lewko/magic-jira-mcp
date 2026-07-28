@@ -2,7 +2,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { basename } from 'node:path'
 import { z } from 'zod'
 import { JiraError } from '../jira-client.mjs'
-import { assertProjectWritable, consumeWriteBudget } from '../write-guard.mjs'
+import { consumeWriteBudget } from '../write-guard.mjs'
 
 /** Refuse oversized uploads early (Jira limits vary; this is our own sanity cap). */
 const MAX_BYTES = 10 * 1024 * 1024
@@ -38,7 +38,6 @@ export default {
    */
   async run({ key, path, filename }, { config, client }) {
     const issueKey = key.trim().toUpperCase()
-    assertProjectWritable(config, issueKey.split('-')[0])
 
     let size
     try {

@@ -1,6 +1,6 @@
 {
   "name": "jira-tools",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Jira Server (self-hosted, Bearer PAT auth) MCP server and team skills: search, sprint health, story audits, semantic bug lookup",
   "author": { "name": "magic-lewko" }
 }

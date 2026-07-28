@@ -1,8 +1,8 @@
 /**
- * @fileoverview Server-side safety rails for write operations (SPEC §4.2).
+ * @fileoverview Server-side safety rails for write operations.
  *
- * Two independent guards, both enforced in CODE (a skill's instructions can be
- * ignored by a model — this cannot):
+ * There is NO "write-mode" — writes are available by default. What remains
+ * guards against AI mistakes (not user competence):
  *
  * 1. Session write budget — a per-process counter. Once exhausted, every write
  *    fails until the server is restarted (/reload-plugins). This is the hard
@@ -11,16 +11,14 @@
  *    matches an existing open issue in the same project, unless the caller
  *    explicitly passes allow_duplicate. A loop recreating the same ticket dies
  *    on its second call.
- * 3. Per-project write opt-in — even with JIRA_ALLOW_WRITE=true, a project is
- *    writable ONLY when its profile says `allowWrite: true` (or it appears in
- *    `writeProjects` / env JIRA_WRITE_PROJECTS). Production projects stay
- *    untouchable until someone consciously opts them in. Checked per call, so
- *    no server restart is needed to change it.
+ *
+ * Plus, per issue-creation flow: /create-task's mandatory dry-run and Claude
+ * Code's own per-tool permission prompts.
  */
 
 import { debug, JiraError } from './jira-client.mjs'
 
-/** Defaults when config carries no writeBudget (SPEC §4.2). */
+/** Defaults when config carries no writeBudget. */
 export const DEFAULT_WRITE_BUDGET = { creates: 10, total: 30 }
 
 const counters = { creates: 0, total: 0 }
@@ -57,38 +55,6 @@ export function consumeWriteBudget(config, kind) {
 
   counters.total += 1
   if (kind === 'create') counters.creates += 1
-}
-
-/**
- * Throw unless the project has been explicitly opted in for writes
- * (profile `allowWrite: true`, config `writeProjects`, or env
- * JIRA_WRITE_PROJECTS). Read per call — editing the config takes effect
- * immediately, no restart.
- *
- * @param {object} config
- * @param {string} projectKey - e.g. 'PROJ' (or derived from an issue key)
- */
-export function assertProjectWritable(config, projectKey) {
-  // Global flag re-checked PER CALL: registration happens at server startup,
-  // so flipping allowWrite to false in the config must take effect immediately
-  // even while the old server process is still running.
-  if (config?.allowWrite !== true) {
-    throw new JiraError(
-      'Tryb zapisu jest wyłączony (allowWrite: false) — operacja odrzucona. '
-      + 'Jeśli narzędzia zapisu są nadal widoczne, serwer działa na starej konfiguracji: /reload-plugins.',
-    )
-  }
-
-  const key = String(projectKey).trim().toUpperCase()
-  const profileAllows = config?.projects?.[key]?.allowWrite === true
-  const listAllows = (config?.writeProjects ?? []).includes(key)
-  if (profileAllows || listAllows) return
-  throw new JiraError(
-    `Zapis do projektu ${key} nie jest włączony — to bezpiecznik per projekt. `
-    + `Aby świadomie go włączyć, dopisz "allowWrite": true w sekcji projects.${key} `
-    + 'pliku ~/.config/jira-tools/config.json (działa od razu, bez restartu) '
-    + `albo ustaw env JIRA_WRITE_PROJECTS=${key}.`,
-  )
 }
 
 /**

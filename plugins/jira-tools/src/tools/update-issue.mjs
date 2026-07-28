@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { JiraError } from '../jira-client.mjs'
-import { assertProjectWritable, consumeWriteBudget } from '../write-guard.mjs'
+import { consumeWriteBudget } from '../write-guard.mjs'
 
 /**
  * WRITE tool. Registered only behind JIRA_ALLOW_WRITE=true.
@@ -42,7 +42,6 @@ export default {
    */
   async run(args, { config, client }) {
     const issueKey = args.key.trim().toUpperCase()
-    assertProjectWritable(config, issueKey.split('-')[0])
 
     const fields = {}
     const changed = []

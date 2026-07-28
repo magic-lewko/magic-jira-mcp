@@ -1,32 +1,19 @@
 # jira-claude-plugin
 
 Rozmawiasz z Jirą po ludzku przez Claude — raporty sprintu, szukanie bugów po opisie,
-zakładanie ticketów per platforma. Jeden serwer MCP działa w Claude Code (dev) i Claude
-Desktop (PM/analityk). Domyślnie **tylko do odczytu**; zapis włączasz świadomie.
+zakładanie i edycja ticketów. Jeden serwer MCP działa w Claude Desktop i w Claude Code.
 
-16 narzędzi · 8 skilli · bezpieczniki w kodzie serwera. Pełne przykłady:
-[docs/use-cases.md](plugins/jira-tools/docs/use-cases.md) · specyfikacja: [SPEC.md](SPEC.md).
+16 narzędzi · 8 skilli. Pełne przykłady: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md) · specyfikacja: [SPEC.md](SPEC.md).
 
 ## Wymagania
 
 - Node.js ≥ 20 (`node -v`)
-- dostęp do Jiry (VPN, jeśli trzeba) + własny token PAT (Jira → awatar → **Personal Access Tokens** → **Create token**)
+- dostęp do Jiry (VPN, jeśli trzeba) + własny token PAT: Jira → awatar → **Personal Access Tokens** → **Create token**
 
-## Instalacja — Claude Code (dev)
+## Claude Desktop
 
-```text
-/plugin marketplace add <URL-repo-albo-ścieżka>
-/plugin install jira-tools@magic-jira-mcp
-/jira-tools:jira-setup          # URL, token, język, tryb pracy
-/jira-tools:jira-config PROJ    # profil projektu
-```
-
-Gotowe, gdy zobaczysz „Zalogowano jako …". Potem np. `pokaż moje taski w PROJ`.
-
-## Instalacja — Claude Desktop (PM/analityk)
-
-1. Pobierz repo w stałe miejsce (`git clone …`).
-2. **Settings → Developer → Edit Config** → dopisz (popraw ścieżkę `/`, URL i token):
+1. Pobierz repo w stałe miejsce: `git clone https://github.com/magic-lewko/magic-jira-mcp.git`
+2. Claude Desktop → **Settings → Developer → Edit Config** → dopisz (popraw ścieżkę na `/`, URL i token):
 
    ```json
    {
@@ -42,21 +29,36 @@ Gotowe, gdy zobaczysz „Zalogowano jako …". Potem np. `pokaż moje taski w PR
 
 3. Zrestartuj Claude Desktop → zapytaj „kim jestem w Jirze?".
 
+Pytasz naturalnym językiem — komendy `/…` są tylko w Claude Code.
+
+## Claude Code
+
+Dodaj marketplace i zainstaluj plugin:
+
+```text
+/plugin marketplace add https://github.com/magic-lewko/magic-jira-mcp
+/plugin install jira-tools@magic-jira-mcp
+/jira-tools:jira-setup          # URL, token, język, projekt
+/jira-tools:jira-config PROJ    # profil projektu
+```
+
+Gotowe, gdy zobaczysz „Zalogowano jako …". Potem np. `pokaż moje taski w PROJ`.
+
 ## Co potrafi
 
 Odczyt: moje taski, szczegóły/zakresy ticketów, historia statusów, boardy/sprinty,
 status epica, **raport zdrowia sprintu**, **szukanie buga po opisie + środowisko**, audyt stories.
 
-Zapis (za `allowWrite` + zgodą per projekt): tworzenie ticketów per platforma, edycja pól,
-komentarze, załączniki, zmiana statusu, linkowanie, przypięcie do epica — zawsze z podglądem.
+Zapis: tworzenie ticketów per platforma, edycja pól, komentarze, załączniki, zmiana statusu,
+linkowanie, przypięcie do epica. Tworzenie zawsze z podglądem i potwierdzeniem.
 
 Skille: `jira-setup`, `jira-config`, `get-tasks`, `sprint-health`, `check-stories`,
 `find-bug`, `create-task`, `feedback`.
 
 ## Bezpieczeństwo
 
-Read-only domyślnie · zapis per projekt · budżet sesji (ochrona przed pętlą) · strażnik
-duplikatów · hook chroniący ustawienia · labelka `ai-generated` · dry-run przed każdym zapisem.
+Budżet sesji (twardy stop przed pętlą tworzenia) · strażnik duplikatów · jeden ticket na
+wywołanie · `/create-task` zawsze z dry-runem · tickety od AI mają labelkę `ai-generated`.
 
 ## Dla developerów
 
