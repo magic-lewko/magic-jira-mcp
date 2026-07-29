@@ -22,6 +22,7 @@ import getEpicStatus from './get-epic-status.mjs'
 import getIssueChangelog from './get-issue-changelog.mjs'
 import getCurrentUser from './get-current-user.mjs'
 import getProjectConfig from './get-project-config.mjs'
+import getVersion from './get-version.mjs'
 
 /** Read-only tools — always registered. */
 export const readTools = [
@@ -34,6 +35,7 @@ export const readTools = [
   getIssueChangelog,
   getCurrentUser,
   getProjectConfig,
+  getVersion,
 ]
 
 /** Write tools — registered only behind JIRA_ALLOW_WRITE=true (gate in server.mjs). */

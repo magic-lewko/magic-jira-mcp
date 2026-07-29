@@ -22227,6 +22227,44 @@ var get_project_config_default = {
   }
 };
 
+// plugins/jira-tools/src/version.mjs
+var VERSION = "0.5.1";
+
+// plugins/jira-tools/src/tools/get-version.mjs
+var get_version_default = {
+  name: "get_version",
+  // Diagnostic — must answer even when Jira is not configured yet.
+  alwaysAvailable: true,
+  config: {
+    title: "Get plugin version",
+    description: "Report the running jira-tools MCP server version plus a quick health check: Node version, whether a Jira config is loaded and which server it points at. Use it to confirm exactly which plugin version is connected in this session.",
+    inputSchema: {}
+  },
+  /**
+   * @param {object} _args
+   * @param {{config: object|null}} ctx
+   * @returns {Promise<string>}
+   */
+  async run(_args, { config: config2 }) {
+    const lines = [
+      `jira-tools MCP server v${VERSION}`,
+      `Node ${process.version}`
+    ];
+    if (config2) {
+      lines.push(`Config: loaded \u2014 server ${config2.server}`);
+      if (config2.defaultProject) lines.push(`Default project: ${config2.defaultProject}`);
+      const profiles = Object.keys(config2.projects ?? {});
+      if (profiles.length) lines.push(`Project profiles: ${profiles.join(", ")}`);
+      if (config2.language) lines.push(`Language: ${config2.language}`);
+    } else {
+      lines.push(
+        "Config: NOT loaded \u2014 run /jira-tools:jira-setup, or set the Jira URL and token in the Desktop plugin settings."
+      );
+    }
+    return lines.join("\n");
+  }
+};
+
 // plugins/jira-tools/src/tools/index.mjs
 var readTools = [
   search_issues_default,
@@ -22237,7 +22275,8 @@ var readTools = [
   get_epic_status_default,
   get_issue_changelog_default,
   get_current_user_default,
-  get_project_config_default
+  get_project_config_default,
+  get_version_default
 ];
 var writeTools = [
   create_issue_default,
@@ -22254,7 +22293,7 @@ var NOT_CONFIGURED_MESSAGE = 'Jira is not configured yet. In Claude Code run /ji
 function toHandler(tool, { getConfig, client }) {
   return async (args) => {
     const config2 = getConfig();
-    if (!config2) {
+    if (!config2 && !tool.alwaysAvailable) {
       return { content: [{ type: "text", text: NOT_CONFIGURED_MESSAGE }] };
     }
     try {
@@ -22274,12 +22313,17 @@ function registerTools(server, { getConfig = () => loadConfig(), client = jira_c
   return server;
 }
 function createServer(deps = {}) {
-  const server = new McpServer({ name: "jira", version: "0.5.0" });
+  const server = new McpServer({ name: "jira", version: VERSION });
   registerTools(server, deps);
   return server;
 }
 
 // plugins/jira-tools/src/main.mjs
+if (process.argv.includes("--version") || process.argv.includes("-v")) {
+  process.stdout.write(`jira-tools ${VERSION}
+`);
+  process.exit(0);
+}
 try {
   const server = createServer();
   await server.connect(new StdioServerTransport());

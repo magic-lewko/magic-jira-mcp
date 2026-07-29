@@ -43,9 +43,24 @@ test('all read tools are registered', () => {
   const expected = [
     'search_issues', 'get_issue', 'list_boards', 'get_active_sprint', 'get_sprint_issues',
     'get_epic_status', 'get_issue_changelog', 'get_current_user', 'get_project_config',
+    'get_version',
   ]
   assert.deepEqual([...tools.keys()].sort(), expected.sort())
   assert.equal(readTools.length, expected.length)
+})
+
+test('get_version answers even without config (health check)', async () => {
+  const tools = setup({ config: null })
+  const result = await tools.get('get_version').handler({})
+  assert.notEqual(result.isError, true)
+  assert.match(result.content[0].text, /jira-tools MCP server v\d+\.\d+\.\d+/)
+  assert.match(result.content[0].text, /Config: NOT loaded/)
+})
+
+test('get_version reports the loaded config server', async () => {
+  const tools = setup() // CONFIG points at https://jira.example.pl
+  const result = await tools.get('get_version').handler({})
+  assert.match(result.content[0].text, /Config: loaded — server https:\/\/jira\.example\.pl/)
 })
 
 test('write tools are always registered (no write-mode gate)', () => {

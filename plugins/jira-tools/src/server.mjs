@@ -15,6 +15,7 @@ import { loadConfig } from './config.mjs'
 import * as jiraClient from './jira-client.mjs'
 import { JiraError } from './jira-client.mjs'
 import { readTools, writeTools } from './tools/index.mjs'
+import { VERSION } from './version.mjs'
 
 /** Shown by every tool until the user completes the setup. */
 const NOT_CONFIGURED_MESSAGE =
@@ -33,7 +34,7 @@ const NOT_CONFIGURED_MESSAGE =
 function toHandler(tool, { getConfig, client }) {
   return async (args) => {
     const config = getConfig()
-    if (!config) {
+    if (!config && !tool.alwaysAvailable) {
       return { content: [{ type: 'text', text: NOT_CONFIGURED_MESSAGE }] }
     }
     try {
@@ -78,7 +79,7 @@ export function registerTools(
  * @returns {McpServer}
  */
 export function createServer(deps = {}) {
-  const server = new McpServer({ name: 'jira', version: '0.5.0' })
+  const server = new McpServer({ name: 'jira', version: VERSION })
   registerTools(server, deps)
   return server
 }

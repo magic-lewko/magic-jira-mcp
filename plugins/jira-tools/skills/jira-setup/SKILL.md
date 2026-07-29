@@ -1,6 +1,6 @@
 ---
 name: jira-setup
-description: Interactive first-time setup of the Jira connection - asks for the Jira Server URL, guides the user through generating a Personal Access Token, asks for language and default project, saves ~/.config/jira-tools/config.json and verifies the login. Use when the user wants to configure Jira access, mentions "setup jira", "configure jira", or when Jira tools report that Jira is not configured yet.
+description: Interactive first-time setup of the Jira connection - asks for the Jira Server URL, guides the user through generating a Personal Access Token, asks for language and default project, saves ~/.config/jira-tools/config.json and verifies the login. If Jira is already configured (for example via the Claude Desktop plugin form), it skips the questions and just confirms the connection. Use when the user wants to configure Jira access, mentions "setup jira", "configure jira", or when Jira tools report that Jira is not configured yet.
 ---
 
 Guide the user through configuring the Jira connection. Respond in the user's language (this team usually speaks Polish). Never print the token back to the user once provided, never store it anywhere except the config file below.
@@ -20,6 +20,11 @@ Guide the user through configuring the Jira connection. Respond in the user's la
 If there is no config yet, both modes behave like a first-time setup.
 
 ## Steps
+
+0. **Check first — do NOT ask if already connected.** Unless the mode is `--update` or `--reset`, call the `get_current_user` MCP tool (server `jira`) BEFORE asking anything.
+   - **Success** ("Logged in as …") → the connection is already configured — via the Claude Desktop plugin form (env vars), or an existing config file. Report who the user is logged in as, tell them setup is already done, suggest step 5's `/jira-tools:jira-config <PROJECT>`, and **STOP — ask no setup questions**. This is the normal Claude Desktop path.
+   - **401 (token wrong/expired)** → configured, but the token is bad. In Claude Desktop point the user to the token field in the plugin settings panel; in Claude Code ask for a fresh token and rewrite the file (step 2). Do not re-ask the URL, language or project.
+   - **"Jira is not configured …"** → nothing is set yet; continue with the full setup below (the first-time Claude Code path).
 
 1. **Collect settings** — ask the user for (one message, all questions at once):
    - Jira Server base URL (e.g. `https://jira.example.pl` — no trailing slash needed).
