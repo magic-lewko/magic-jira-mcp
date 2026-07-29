@@ -11,39 +11,33 @@ Desktop and Claude Code.
 - Node.js ≥ 20 (`node -v`)
 - Jira access (VPN if needed) + your own Personal Access Token: Jira → avatar → **Personal Access Tokens** → **Create token**
 
-## Claude Desktop
+## Install
 
-1. Clone the repo somewhere permanent: `git clone https://github.com/magic-lewko/magic-jira-mcp.git`
-2. Claude Desktop → **Settings → Developer → Edit Config** → add (fix the path to use `/`, plus your URL and token):
+Same repository, two apps:
 
-   ```json
-   {
-     "mcpServers": {
-       "jira": {
-         "command": "node",
-         "args": ["C:/path/to/repo/plugins/jira-tools/servers/jira-mcp.mjs"],
-         "env": { "JIRA_SERVER": "https://jira.example.pl", "JIRA_TOKEN": "<PAT>" }
-       }
-     }
-   }
-   ```
+**Claude Desktop** — Settings → **Plugins** → **Add** → **Add from a repository** →
+paste `https://github.com/magic-lewko/magic-jira-mcp` → turn on **Sync automatically** → Add.
 
-3. Restart Claude Desktop → ask "who am I in Jira?".
-
-You talk in plain language — the `/…` commands exist only in Claude Code.
-
-## Claude Code
-
-Add the marketplace and install the plugin:
+**Claude Code** — run:
 
 ```text
 /plugin marketplace add https://github.com/magic-lewko/magic-jira-mcp
 /plugin install jira-tools@magic-jira-mcp
-/jira-tools:jira-setup          # URL, token, language, project
-/jira-tools:jira-config PROJ    # project profile
 ```
 
+## Configure
+
+Run the setup skill (`/jira-tools:jira-setup` in Claude Code, or just ask
+"set up Jira" in Desktop) and give it your Jira URL, token, language and default project.
+Then `/jira-tools:jira-config PROJ` to save the project profile.
+
 Done when you see "Logged in as …". Then try `show my tasks in PROJ`.
+
+## Updates
+
+New versions ship to the repo's `main` branch. With **Sync automatically** on, Desktop
+picks them up; otherwise re-sync the marketplace (Plugins → Add → the repo → Sync). In
+Claude Code: `/plugin marketplace update magic-jira-mcp` then `/plugin install jira-tools@magic-jira-mcp`.
 
 ## What it does
 
