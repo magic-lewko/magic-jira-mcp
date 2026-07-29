@@ -30,10 +30,10 @@ export default {
   async run({ key, keys, all_comments }, { config, client }) {
     const expanded = expandKeys([key, ...(keys ?? [])].filter(Boolean))
     if (expanded.length === 0) {
-      throw new JiraError('Podaj klucz zadania w parametrze "key" lub listę w "keys" (obsługiwane zakresy: PROJ-98..111).')
+      throw new JiraError('Provide an issue key in "key" or a list in "keys" (ranges supported: PROJ-98..111).')
     }
     if (expanded.length > MAX_KEYS) {
-      throw new JiraError(`Za dużo zadań naraz (${expanded.length}, limit ${MAX_KEYS}). Zawęź zakres lub podziel na kilka wywołań.`)
+      throw new JiraError(`Too many issues at once (${expanded.length}, limit ${MAX_KEYS}). Narrow the range or split into several calls.`)
     }
 
     const results = await Promise.allSettled(expanded.map((k) => client.getIssue(config, k)))

@@ -1,131 +1,65 @@
-# jira-tools — ściąga
+# jira-tools cheat sheet
 
-Jira ↔ Claude. Piszesz po ludzku, dostajesz odpowiedź z Jiry.
-`PROJ` = klucz Twojego projektu. Komendy `/…` działają w Claude Code; **prompty działają wszędzie** (też w Claude Desktop).
+Use plain language to work with Jira. `PROJ` is your project key.
+Commands that start with `/` work in Claude Code only. The plain-language prompts work in both apps.
 
-## Zanim zaczniesz (obie grupy)
+## First steps
 
-| Potrzebujesz | Skąd wziąć |
+1. Install the plugin. See the main README.
+2. Configure the connection. In Claude Code, run `/jira-tools:jira-setup`. In Claude Desktop, type the Jira URL and the token in the plugin settings.
+3. Save a project profile. In Claude Code, run `/jira-tools:jira-config PROJ`.
+4. Ask `show my tasks in PROJ`.
+
+## Read
+
+| Goal | Prompt |
 | --- | --- |
-| Node.js ≥ 20 | sprawdź: `node -v` w terminalu; brak → [nodejs.org](https://nodejs.org) (LTS) |
-| dostęp do Jiry | otwórz Jirę w przeglądarce (VPN, jeśli wymagany) |
-| token PAT | Jira → **awatar (prawy górny róg)** → **Personal Access Tokens** → **Create token** — skopiuj od razu, pokaże się tylko raz |
+| your tasks | `show my tasks in PROJ in the current sprint` |
+| one ticket | `show PROJ-42` |
+| many tickets | `show PROJ-98..111` |
+| status history | `show the status history of PROJ-42` |
+| active sprint | `show the active sprint in PROJ` |
+| sprint tickets | `list the tickets in the current sprint of PROJ` |
+| sprint health report | `/jira-tools:sprint-health` |
+| epic status | `show the status of epic PROJ-40` |
+| story audit | `/jira-tools:check-stories PROJ` |
+| bug status and environment | `is the notification counter bug on UAT?` |
+| duplicate check | `show open bugs about sharing` |
+| free question | `show what moved to Done yesterday` |
 
-## Instalacja — dev (Claude Code, ~5 min)
+## Write
 
-```text
-/plugin marketplace add https://github.com/magic-lewko/magic-jira-mcp
-/plugin install jira-tools@magic-jira-mcp
-/jira-tools:jira-setup
-```
+Each write shows a preview first. The plugin creates the ticket after you confirm.
 
-Setup poprowadzi Cię przez URL, token, język i tryb pracy — na końcu „**Zalogowano jako …**".
-Potem raz na projekt:
-
-```text
-/jira-tools:jira-config TWÓJPROJEKT
-```
-
-## Instalacja — PM / analityk (Claude Desktop, ~10 min)
-
-1. Pobierz pliki pluginu w stałe miejsce, np. `C:\narzedzia\magic-jira-mcp`:
-   `git clone https://github.com/magic-lewko/magic-jira-mcp.git` (albo ZIP: Code → Download ZIP)
-2. Claude Desktop → **Settings → Developer → Edit Config** → dopisz (popraw ścieżkę — ukośniki `/` — oraz URL i token):
-
-   ```json
-   {
-     "mcpServers": {
-       "jira": {
-         "command": "node",
-         "args": ["C:/narzedzia/magic-jira-mcp/plugins/jira-tools/servers/jira-mcp.mjs"],
-         "env": {
-           "JIRA_SERVER": "https://jira.example.pl",
-           "JIRA_TOKEN": "<twój PAT>"
-         }
-       }
-     }
-   }
-   ```
-
-3. Zrestartuj Claude Desktop (całkiem zamknij i otwórz)
-4. Test: zapytaj **„kim jestem w Jirze?"** → „Zalogowano jako …" = działa
-
-Domyślnie wszystko jest **tylko do odczytu**. Najczęstsze potknięcia: `\` zamiast `/` w ścieżce · brak restartu · brak Node (`node -v`) · wygasły token.
-
-## Odczyt — co chcesz wiedzieć?
-
-| Chcesz… | Wpisz |
+| Goal | Prompt |
 | --- | --- |
-| swoje zadania | `pokaż moje taski w PROJ z aktualnego sprintu` |
-| szczegóły ticketa | `pokaż szczegóły PROJ-42` (domyślnie 5 ostatnich komentarzy — po całość: `…ze wszystkimi komentarzami`) |
-| kilka ticketów naraz | `pokaż PROJ-98..111` |
-| kto i kiedy zmieniał status | `pokaż historię statusów PROJ-42` |
-| aktywny sprint | `jaki jest aktywny sprint w PROJ?` |
-| zadania sprintu | `wypisz zadania z aktualnego sprintu w PROJ` |
-| **raport sprintu** ⭐ | `/jira-tools:sprint-health` |
-| status epica | `jaki jest status epica PROJ-40?` |
-| audyt user stories (sprint / numer `[642321]` w tytule) | `/jira-tools:check-stories PROJ` |
-| **czy bug jest naprawiony / na jakim środowisku** ⭐ | `czy problem z licznikami powiadomień jest już na UAT?` |
-| czy bug już zgłoszony (zanim założysz) | `czy mamy już zgłoszony bug dotyczący sharingu?` |
-| przegląd otwartych bugów o X | `wypisz otwarte bugi dotyczące sharingu i streść każdy` |
-| cokolwiek innego | pytaj wprost: `co przeszło na Done wczoraj?` · `taski Kowalskiego bez ruchu od tygodnia` |
+| tickets per platform | `/jira-tools:create-task user logout on iOS and Web` |
+| one ticket | `create a task in PROJ "Fix email validation"` |
+| assign a person | `assign PROJ-42 to jkowalski` |
+| add a label | `add the label regression to PROJ-42` |
+| add a comment | `comment on PROJ-42: deployed to UAT. Please retest.` |
+| add an attachment | Save the file first. Then run `attach C:\shots\bug.png to PROJ-42`. |
+| change status | `move PROJ-42 to In Progress` |
+| link tickets | `link PROJ-42 to PROJ-43 and PROJ-44` |
+| attach stories to an epic | `attach stories PROJ-101 and PROJ-105..110 to epic PROJ-200` |
 
-Raport sprintu = 5 sekcji: bez ruchu ≥3 dni · świeże komentarze w niedokończonych · On Hold + powód · braki opisu/etykiet/komponentu · Done wczoraj.
+The plugin adds the `ai-generated` label to each ticket it creates. The plugin adds a short signature to each comment it writes.
 
-## Zapis — tworzenie i zmiany
+## The plugin refuses some writes on purpose
 
-Działa od razu, bez włączania. Tworzenie zawsze pokazuje podgląd i czeka na Twoje potwierdzenie.
+- The title matches an open ticket. The plugin points you to that ticket.
+- The session reaches the limit of 10 new tickets or 30 writes. This stops a loop.
+- The plugin creates one ticket per call. It has no bulk mode.
 
-| Chcesz… | Wpisz |
+## Problems
+
+| Problem | Fix |
 | --- | --- |
-| **tickety per platforma z opisu** ⭐ | `/jira-tools:create-task wylogowanie użytkownika na iOS i Web` |
-| pojedynczy ticket | `utwórz w PROJ taska "Poprawka walidacji e-mail"` |
-| przypisanie osoby / poprawki pól | `przypisz PROJ-42 do jkowalski` · `dodaj etykietę regression do PROJ-42` · `ustaw komponent Frontend w PROJ-42` |
-| komentarz | `dodaj komentarz do PROJ-42: wdrożone na UAT, proszę o retest` |
-| załącznik (screenshot) | najpierw **zapisz plik na dysku**, potem: `dodaj do PROJ-42 załącznik C:\zrzuty\blad.png` |
-| zmiana statusu | `przenieś PROJ-42 do In Progress` |
-| przypięcie stories do epica | `stories PROJ-101, PROJ-105..110 bez epica podepnij pod epic PROJ-200` |
-| powiązanie ticketów | `powiąż PROJ-42 z PROJ-43 i PROJ-44` (domyślnie „Relates"; też „blocks", „duplicate") |
+| "Jira is not configured" | Claude Code: run `/jira-tools:jira-setup`. Desktop: type the URL and the token in the plugin settings. |
+| the config is wrong after an update | Run `/jira-tools:jira-update`. It keeps the server and the token. |
+| 401, or the token expired | Create a new token. Open the avatar menu, then Personal Access Tokens. Configure the plugin again. |
+| a timeout | Turn on the VPN. |
+| the write tools are missing | Update the plugin. Then run `/reload-plugins`. |
+| the report shows the wrong status order | Run `/jira-tools:jira-config PROJ`. Select the correct board. |
 
-Przy tworzeniu zawsze: **podgląd → Twoje potwierdzenie → dopiero zapis** (+ wybór: sprint czy backlog). Bez potwierdzenia nic nie powstanie.
-Tickety od agenta dostają labelkę `ai-generated` (filtr w JQL: `labels = ai-generated`), a komentarze podpis — zawsze widać, co wygenerowało AI.
-
-⚠️ **Zrzut wklejony do czatu nie jest plikiem** — trafia tylko „do oczu" modelu, a narzędzia
-nie mają dostępu do jego bajtów. Żeby dołączyć screenshot do ticketa, zapisz go najpierw
-(np. Win+Shift+S → zapisz jako) i podaj ścieżkę.
-
-**Agent nie wymyśla treści za Ciebie.** Porządkuje to, co powiedziałeś, i dopytuje o braki
-(„nie podałeś kroków reprodukcji — jakie są?"). Jeśli czegoś nie chcesz uzupełniać, sekcja
-zostaje z `(do uzupełnienia)` zamiast zmyślonego opisu. Szablon ma wymuszać myślenie, nie
-produkować ładnie brzmiące wypełniacze.
-
-## Szablony ticketów (raz na projekt)
-
-W `/jira-tools:jira-config PROJ` ustawiasz, jak mają wyglądać opisy — osobno dla **bug /
-story / task**. Trzy drogi, w kolejności od najlepszej:
-
-| Sposób | Kiedy |
-| --- | --- |
-| **import z istniejących ticketów** ⭐ | masz w Jirze tickety napisane wzorcowo — podajesz klucze (`bug: PROJ-99, story: PROJ-100`), agent je czyta i wyciąga sam szkielet sekcji (bez Waszych treści) |
-| wklejasz własny | macie ustalony firmowy szablon |
-| propozycja agenta | nie macie nic — dostajesz sensowny start do akceptacji |
-
-Potem `/jira-tools:create-task` wypełnia dokładnie te sekcje.
-
-## Dlaczego czasem odmówi? (celowo)
-
-- tytuł identyczny z otwartym ticketem → odmowa + wskazanie istniejącego,
-- limit sesji: 10 utworzeń / 30 zapisów → twardy stop (ochrona przed pętlą),
-- zawsze 1 ticket na operację — tworzenia hurtem nie ma.
-
-## Coś nie działa?
-
-| Objaw | Ratunek |
-| --- | --- |
-| „Jira nie jest skonfigurowana" | `/jira-tools:jira-setup` |
-| 401 / token wygasł | nowy PAT (awatar → Personal Access Tokens) → `/jira-tools:jira-setup` |
-| timeout | VPN |
-| brak narzędzi zapisu mimo włączenia | `/reload-plugins` |
-| dziwna kolejność statusów w raportach | `/jira-tools:jira-config PROJ` → wybierz właściwy board |
-
-Masz pomysł na ulepszenie pluginu? **`/jira-tools:feedback`** — krótki wywiad i gotowa wiadomość do wklejenia na Slacka.
+Do you have an idea for the plugin? Run `/jira-tools:feedback`. It asks a few questions. Then it writes a Slack message.

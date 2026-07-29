@@ -18,9 +18,9 @@ import { readTools, writeTools } from './tools/index.mjs'
 
 /** Shown by every tool until the user completes the setup. */
 const NOT_CONFIGURED_MESSAGE =
-  'Jira nie jest jeszcze skonfigurowana. W Claude Code uruchom /jira-tools:jira-setup. '
-  + 'Alternatywnie utwórz plik ~/.config/jira-tools/config.json z polami "server" i "token" '
-  + '(szczegóły: README pluginu jira-tools).'
+  'Jira is not configured yet. In Claude Code run /jira-tools:jira-setup. In Claude Desktop '
+  + 'fill the Jira URL and token in the plugin settings. Alternatively create '
+  + '~/.config/jira-tools/config.json with "server" and "token" fields (see the README).'
 
 /**
  * Wrap a tool's run() into an MCP handler: config guard, error mapping,
@@ -42,7 +42,7 @@ function toHandler(tool, { getConfig, client }) {
     } catch (err) {
       const text = err instanceof JiraError
         ? err.message
-        : `Nieoczekiwany błąd: ${err?.message ?? err}`
+        : `Unexpected error: ${err?.message ?? err}`
       return { isError: true, content: [{ type: 'text', text }] }
     }
   }
@@ -78,7 +78,7 @@ export function registerTools(
  * @returns {McpServer}
  */
 export function createServer(deps = {}) {
-  const server = new McpServer({ name: 'jira', version: '0.4.0' })
+  const server = new McpServer({ name: 'jira', version: '0.5.0' })
   registerTools(server, deps)
   return server
 }

@@ -24,36 +24,36 @@ test('formatIssueLine: snapshot on the fixture', () => {
 test('formatIssueLine: tolerates missing fields', () => {
   assert.equal(
     formatIssueLine({ key: 'PROJ-1', fields: {} }),
-    'PROJ-1 [?] ?/? — (bez tytułu) · Nieprzypisany',
+    'PROJ-1 [?] ?/? — (no title) · Unassigned',
   )
 })
 
 test('formatIssueList: truncation note appears exactly when page is partial', () => {
   const page = { issues: [fixture], total: 2, startAt: 0 }
-  assert.match(formatIssueList(page), /\(pokazano 1 z 2 — zawęź JQL lub zwiększ max_results\)/)
+  assert.match(formatIssueList(page), /\(showing 1 of 2 — narrow the JQL or raise max_results\)/)
 
   const complete = { issues: [fixture, fixture], total: 2, startAt: 0 }
-  assert.doesNotMatch(formatIssueList(complete), /pokazano/)
+  assert.doesNotMatch(formatIssueList(complete), /showing/)
 
-  assert.equal(formatIssueList({ issues: [], total: 0 }), 'Brak wyników.')
+  assert.equal(formatIssueList({ issues: [], total: 0 }), 'No results.')
 })
 
 test('formatIssueFull: snapshot on the fixture', () => {
   const text = formatIssueFull(fixture, { server: 'https://jira.example.pl' })
   assert.equal(text, [
     'PROJ-42 — [123] Login screen crashes on empty password',
-    'Bug · High · In Progress · Jan Kowalski · zgłosił: Anna Nowak',
-    'komponenty: iOS, Android · labels: UAT, mobile · fixVersions: 1.4.0'
-    + ' · parent/epic: PROJ-40 (Login epic work) · utworzono: 2026-07-01, aktualizacja: 2026-07-10',
+    'Bug · High · In Progress · Jan Kowalski · reporter: Anna Nowak',
+    'components: iOS, Android · labels: UAT, mobile · fixVersions: 1.4.0'
+    + ' · parent/epic: PROJ-40 (Login epic work) · created: 2026-07-01, updated: 2026-07-10',
     'https://jira.example.pl/browse/PROJ-42',
     '',
-    'OPIS:',
+    'DESCRIPTION:',
     'Steps:\n1. Open login\n2. Leave password empty\n3. Tap submit\n\nExpected: validation error\nActual: crash',
     '',
-    'ZAŁĄCZNIKI (1):',
+    'ATTACHMENTS (1):',
     '- crash.log  https://jira.example.pl/secure/attachment/10001/crash.log',
     '',
-    'KOMENTARZE (2):',
+    'COMMENTS (2):',
     '• Anna Nowak (2026-07-09):',
     '  Reproduced on iOS 18.\n  Crash log attached.',
     '• Jan Kowalski (2026-07-10):',
@@ -78,14 +78,14 @@ test('formatIssueFull: compact mode caps comments at 5 with a truncation note', 
   }
 
   const compact = formatIssueFull(issue)
-  assert.match(compact, /KOMENTARZE \(pokazano 5 ostatnich z 8 — pełna lista: all_comments=true\):/)
+  assert.match(compact, /COMMENTS \(showing the last 5 of 8 — full list: all_comments=true\):/)
   assert.doesNotMatch(compact, /komentarz 3\b/)
   assert.match(compact, /komentarz 8/)
-  assert.match(compact, /… \(opis przycięty — pełna treść: all_comments=true\)/)
+  assert.match(compact, /… \(description truncated — full text: all_comments=true\)/)
   assert.ok(!compact.includes('x'.repeat(4500)), 'description must be capped')
 
   const full = formatIssueFull(issue, { full: true })
-  assert.match(full, /KOMENTARZE \(8\):/)
+  assert.match(full, /COMMENTS \(8\):/)
   assert.match(full, /komentarz 1\b/)
   assert.ok(full.includes('x'.repeat(5000)), 'full mode keeps the whole description')
 })
@@ -95,7 +95,7 @@ test('formatSprint: name, dates, goal', () => {
     id: 5, name: 'Sprint 12', state: 'active',
     startDate: '2026-07-06T08:00:00.000Z', endDate: '2026-07-20T16:00:00.000Z', goal: 'Ship login',
   })
-  assert.equal(text, 'Sprint: Sprint 12 (active, id: 5)\nDaty: 2026-07-06 → 2026-07-20\nCel: Ship login')
+  assert.equal(text, 'Sprint: Sprint 12 (active, id: 5)\nDates: 2026-07-06 → 2026-07-20\nGoal: Ship login')
 })
 
 test('formatBoards: one line per board, empty message', () => {
@@ -103,8 +103,8 @@ test('formatBoards: one line per board, empty message', () => {
     { id: 1, name: 'Alpha board', type: 'scrum', location: { projectKey: 'PROJ' } },
     { id: 2, name: 'Ops', type: 'kanban' },
   ])
-  assert.equal(text, '1 — Alpha board (scrum, projekt: PROJ)\n2 — Ops (kanban)')
-  assert.equal(formatBoards([]), 'Brak boardów.')
+  assert.equal(text, '1 — Alpha board (scrum, project: PROJ)\n2 — Ops (kanban)')
+  assert.equal(formatBoards([]), 'No boards.')
 })
 
 test('formatChangelog: only status transitions, with dates and authors', () => {
@@ -125,9 +125,9 @@ test('formatChangelog: only status transitions, with dates and authors', () => {
   }
   assert.equal(
     formatChangelog(issue),
-    'PROJ-42 — historia statusów:\n2026-07-08  To Do → In Progress  (Jan Kowalski)',
+    'PROJ-42 — status history:\n2026-07-08  To Do → In Progress  (Jan Kowalski)',
   )
-  assert.equal(formatChangelog({ key: 'PROJ-1', changelog: { histories: [] } }), 'PROJ-1: brak zmian statusu w historii.')
+  assert.equal(formatChangelog({ key: 'PROJ-1', changelog: { histories: [] } }), 'PROJ-1: no status changes in history.')
 })
 
 test('formatEpicStatus: counts per status + open list', () => {
@@ -139,10 +139,10 @@ test('formatEpicStatus: counts per status + open list', () => {
     issues: [child('PROJ-41', 'Done', 'done'), child('PROJ-42', 'In Progress', 'indeterminate')],
     total: 2,
   })
-  assert.match(text, /Epic PROJ-40 — 2 zadań:/)
+  assert.match(text, /Epic PROJ-40 — 2 issues:/)
   assert.match(text, /1 {2}Done/)
-  assert.match(text, /Otwarte \(1\):/)
+  assert.match(text, /Open \(1\):/)
   assert.match(text, /PROJ-42 \[In Progress\]/)
 
-  assert.equal(formatEpicStatus('PROJ-9', { issues: [], total: 0 }), 'Epic PROJ-9: brak zadań podpiętych.')
+  assert.equal(formatEpicStatus('PROJ-9', { issues: [], total: 0 }), 'Epic PROJ-9: no linked issues.')
 })

@@ -41,16 +41,16 @@ export function consumeWriteBudget(config, kind) {
 
   const refuse = (used, limit, what) => {
     throw new JiraError(
-      `Limit zapisów w tej sesji osiągnięty (${used}/${limit} — ${what}). `
-      + 'To zabezpieczenie przed niekontrolowaną pętlą tworzenia. Jeśli działasz celowo, '
-      + 'zrestartuj serwer (/reload-plugins w Claude Code) i kontynuuj, albo podnieś limit '
-      + '(config "writeBudget" lub env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL).',
+      `Session write limit reached (${used}/${limit} — ${what}). `
+      + 'This protects against an uncontrolled creation loop. If you are doing this on purpose, '
+      + 'restart the server (/reload-plugins in Claude Code) and continue, or raise the limit '
+      + '(config "writeBudget" or env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL).',
     )
   }
 
-  if (counters.total >= budget.total) refuse(counters.total, budget.total, 'wszystkie operacje zapisu')
+  if (counters.total >= budget.total) refuse(counters.total, budget.total, 'all writes')
   if (kind === 'create' && counters.creates >= budget.creates) {
-    refuse(counters.creates, budget.creates, 'tworzenie zadań')
+    refuse(counters.creates, budget.creates, 'issue creation')
   }
 
   counters.total += 1

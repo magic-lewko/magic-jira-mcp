@@ -54,11 +54,11 @@ test('401 → PAT renewal instruction, without the token', async () => {
   )
 })
 
-test('404 → "Nie znaleziono" with resource name', async () => {
+test('404 → "Not found" with resource name', async () => {
   mockFetch([{ status: 404, body: '' }])
   await assert.rejects(
     () => jiraFetch(CONFIG, '/rest/api/2/issue/PROJ-999', { what: 'PROJ-999' }),
-    /Nie znaleziono: PROJ-999 \(404\)/,
+    /Not found: PROJ-999 \(404\)/,
   )
 })
 
@@ -67,7 +67,7 @@ test('500 → status + first 300 chars of body only', async () => {
   await assert.rejects(
     () => jiraFetch(CONFIG, '/rest/api/2/search', { what: 'search' }),
     (err) => {
-      assert.match(err.message, /błąd 500/)
+      assert.match(err.message, /error 500/)
       assert.ok(err.message.length < 400)
       return true
     },
@@ -81,7 +81,7 @@ test('timeout → readable message, no token', async () => {
   await assert.rejects(
     () => jiraFetch(CONFIG, '/rest/api/2/search', { what: 'search' }),
     (err) => {
-      assert.match(err.message, /limit czasu/)
+      assert.match(err.message, /timed out/)
       assert.ok(!err.message.includes(CONFIG.token))
       return true
     },
@@ -93,7 +93,7 @@ test('network error → connection message, no token', async () => {
   await assert.rejects(
     () => jiraFetch(CONFIG, '/rest/api/2/search'),
     (err) => {
-      assert.match(err.message, /Nie udało się połączyć/)
+      assert.match(err.message, /Could not connect/)
       assert.ok(!err.message.includes(CONFIG.token))
       return true
     },

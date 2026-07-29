@@ -63,7 +63,7 @@ const local = parseEnv(join(ROOT, '.env.local'))
 const server = (process.env.JIRA_TEST_SERVER || local.VITE_JIRA_SERVER || '').replace(/\/+$/, '')
 const token = process.env.JIRA_TEST_TOKEN || local.VITE_JIRA_TOKEN
 if (!server || !token) {
-  console.error('Brak danych dostępowych: ustaw JIRA_TEST_SERVER + JIRA_TEST_TOKEN albo .env.local (VITE_JIRA_*).')
+  console.error('Missing credentials: set JIRA_TEST_SERVER + JIRA_TEST_TOKEN or .env.local (VITE_JIRA_*).')
   process.exit(1)
 }
 
@@ -118,51 +118,51 @@ async function cleanLeftovers() {
 async function readPhase() {
   await check('get_current_user (myself)', async () => {
     const t = await run(getCurrentUser, {})
-    must(/Zalogowano jako/.test(t), 'brak "Zalogowano jako"')
+    must(/Logged in as/.test(t), 'missing "Logged in as"')
     return t.split('—')[0].trim()
   })
-  await check('list_boards zawiera board(y) projektu', async () => {
+  await check('list_boards includes the project board(s)', async () => {
     const t = await run(listBoards, { project: PROJECT })
-    must(/\d+ —/.test(t), 'brak boardów')
+    must(/\d+ —/.test(t), 'no boards')
     return t.split('\n')[0]
   })
   let sprintText
   await check('get_active_sprint', async () => {
     sprintText = await run(getActiveSprint, { board_id: (await client.listBoards(config, { project: PROJECT }))[0]?.id })
-    must(/Sprint:/.test(sprintText), 'brak aktywnego sprintu')
+    must(/Sprint:/.test(sprintText), 'no active sprint')
     return sprintText.split('\n')[0]
   })
-  await check('get_sprint_issues (aktualny sprint)', async () => {
+  await check('get_sprint_issues (current sprint)', async () => {
     const boards = await client.listBoards(config, { project: PROJECT })
     const sprint = await client.getActiveSprint(config, boards[0].id)
     const t = await run(getSprintIssues, { sprint_id: sprint.id })
     const n = (t.match(/\n/g) || []).length
-    must(n > 0, 'sprint pusty')
+    must(n > 0, 'sprint empty')
     return `${n} linii`
   })
-  await check('search_issues (dowolny JQL)', async () => {
+  await check('search_issues (arbitrary JQL)', async () => {
     const t = await run(searchIssues, { jql: `project = ${PROJECT} ORDER BY created ASC`, max_results: 5 })
-    must(t !== 'Brak wyników.', 'pusty wynik dla całego projektu')
+    must(t !== 'No results.', 'empty result for the whole project')
     return t.split('\n')[0]
   })
-  await check('get_issue + ekspansja zakresu', async () => {
+  await check('get_issue + range expansion', async () => {
     const t = await run(getIssue, { key: `${PROJECT}-1..2` })
-    must(t.includes(`${PROJECT}-1`), 'brak pierwszego klucza')
-    return 'zakres OK'
+    must(t.includes(`${PROJECT}-1`), 'missing the first key')
+    return 'range OK'
   })
-  await check('get_issue tryb kompaktowy (domyślne komentarze)', async () => {
+  await check('get_issue compact mode (default comments)', async () => {
     const t = await run(getIssue, { key: `${PROJECT}-1` })
-    must(/OPIS:/.test(t), 'brak sekcji OPIS')
+    must(/DESCRIPTION:/.test(t), 'brak sekcji OPIS')
     return 'format OK'
   })
   await check('get_issue_changelog', async () => {
     const t = await run(getChangelog, { key: `${PROJECT}-1` })
-    must(/historia statusów|brak zmian statusu/.test(t), 'nieoczekiwany format changelogu')
+    must(/status history|no status changes/.test(t), 'unexpected changelog format')
     return 'changelog OK'
   })
-  await check('search_issues: pusty wynik obsłużony', async () => {
+  await check('search_issues: empty result handled', async () => {
     const t = await run(searchIssues, { jql: `project = ${PROJECT} AND labels = __na_pewno_nie_istnieje__` })
-    must(t === 'Brak wyników.', 'oczekiwano braku wyników')
+    must(t === 'No results.', 'expected no results')
     return 'OK'
   })
 }
@@ -172,81 +172,81 @@ async function writePhase() {
   const stamp = `${MARK} ${new Date().toISOString().slice(0, 19)}`
   let key
 
-  await check('create_issue (+ labelka ai-generated)', async () => {
+  await check('create_issue (+ ai-generated label)', async () => {
     const t = await run(createIssue, {
       project: PROJECT, issue_type: 'Task', summary: `${stamp} case A`, description: 'selftest',
     })
     key = t.match(/([A-Z]+-\d+)/)?.[1]
-    must(key, 'brak klucza w odpowiedzi')
+    must(key, 'no key in the response')
     created.push(key)
     const issue = await client.getIssue(config, key, { fields: ['labels'] })
-    must((issue.fields.labels ?? []).includes('ai-generated'), 'brak labelki ai-generated')
+    must((issue.fields.labels ?? []).includes('ai-generated'), 'no ai-generated label')
     return `${key} + ai-generated`
   })
-  await check('duplicate guard: tytuł istniejącego, otwartego ticketu → odmowa', async () => {
+  await check('duplicate guard: title of an existing open ticket → refused', async () => {
     // Use an already-indexed open issue — a freshly created one is not yet in
     // Jira's text index (Lucene lag), so back-to-back dupes are a known blind
     // spot; the session budget is the hard rail against loops.
     const existing = await client.getIssue(config, `${PROJECT}-1`, { fields: ['summary'] })
     let refused = false
     try { await run(createIssue, { project: PROJECT, issue_type: 'Task', summary: existing.fields.summary }) }
-    catch (e) { refused = /istnieje już otwarte zadanie/.test(e.message) }
-    must(refused, 'strażnik duplikatów nie odrzucił znanego duplikatu')
-    return 'odmowa OK'
+    catch (e) { refused = /already has an open issue/.test(e.message) }
+    must(refused, 'the duplicate guard did not reject a known duplicate')
+    return 'refused OK'
   })
-  await check('update_issue (labels + priorytet)', async () => {
+  await check('update_issue (labels + priority)', async () => {
     const t = await run(updateIssue, { key, add_labels: ['selftest-label'], priority: 'Medium' })
-    must(/Zaktualizowano/.test(t), 'brak potwierdzenia')
+    must(/Updated/.test(t), 'no confirmation')
     return t.split('—')[0].trim()
   })
-  await check('add_comment (+ podpis AI)', async () => {
+  await check('add_comment (+ AI signature)', async () => {
     await run(addComment, { key, body: 'selftest komentarz' })
     const issue = await client.getIssue(config, key)
     const last = issue.fields.comment.comments.at(-1).body
-    must(last.includes('ai-generated · jira-tools'), 'brak podpisu AI w komentarzu')
-    return 'podpis OK'
+    must(last.includes('ai-generated · jira-tools'), 'no AI signature in the comment')
+    return 'signature OK'
   })
-  await check('add_attachment (plik z dysku)', async () => {
+  await check('add_attachment (file from disk)', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'selftest-'))
     const file = join(dir, 'selftest.txt')
     writeFileSync(file, 'selftest attachment')
     try {
       const t = await run(addAttachment, { key, path: file })
-      must(/Dodano załącznik/.test(t), 'brak potwierdzenia załącznika')
-      return 'załącznik OK'
+      must(/Added attachment/.test(t), 'no attachment confirmation')
+      return 'attachment OK'
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
-  await check('transition_issue: zła nazwa → lista przejść', async () => {
+  await check('transition_issue: wrong name → transitions list', async () => {
     let listed = false
-    try { await run(transitionIssue, { key, transition_name: '___nieistniejące___' }) }
-    catch (e) { listed = /Dostępne przejścia/.test(e.message) }
-    must(listed, 'brak listy dostępnych przejść')
-    return 'lista OK'
+    try { await run(transitionIssue, { key, transition_name: '___nonexistent___' }) }
+    catch (e) { listed = /Available transitions/.test(e.message) }
+    must(listed, 'no list of available transitions')
+    return 'list OK'
   })
-  await check('transition_issue: poprawne przejście', async () => {
+  await check('transition_issue: valid transition', async () => {
     const { transitions } = await client.listTransitions(config, key)
-    must(transitions.length > 0, 'brak dostępnych przejść')
+    must(transitions.length > 0, 'no available transitions')
     const t = await run(transitionIssue, { key, transition_name: transitions[0].name })
-    must(/wykonano przejście/.test(t), 'przejście nie wykonane')
+    must(/transitioned to/.test(t), 'transition not performed')
     return `→ ${transitions[0].name}`
   })
-  await check('link_issues (Relates do drugiego ticketu)', async () => {
+  await check('link_issues (Relates to a second ticket)', async () => {
     const second = (await run(createIssue, { project: PROJECT, issue_type: 'Task', summary: `${stamp} case B` }))
       .match(/([A-Z]+-\d+)/)?.[1]
-    must(second, 'nie utworzono drugiego ticketu do powiązania')
+    must(second, 'did not create the second ticket to link')
     created.push(second)
     const t = await run(linkIssues, { from: key, to: [second] })
-    must(/Powiązano/.test(t), 'brak potwierdzenia powiązania')
+    must(/Linked/.test(t), 'no link confirmation')
     return `${key} ↔ ${second}`
   })
-  await check('link_issues: nieznany typ → lista dostępnych', async () => {
+  await check('link_issues: unknown type → available list', async () => {
     let listed = false
-    try { await run(linkIssues, { from: key, to: [`${PROJECT}-1`], type: '___nieistniejący___' }) }
-    catch (e) { listed = /Dostępne:/.test(e.message) }
-    must(listed, 'brak listy typów powiązań')
-    return 'lista OK'
+    try { await run(linkIssues, { from: key, to: [`${PROJECT}-1`], type: '___nonexistent2___' }) }
+    catch (e) { listed = /Available:/.test(e.message) }
+    must(listed, 'no list of link types')
+    return 'list OK'
   })
-  await check('session budget: wyczerpanie → twardy stop', async () => {
+  await check('session budget: exhaustion → hard stop', async () => {
     resetWriteBudget()
     const tight = { ...ctx, config: { ...config, writeBudget: { creates: 1, total: 1 } } }
     const tmpKey = (await createIssue.run({ project: PROJECT, issue_type: 'Task', summary: `${stamp} budget` }, tight))
@@ -254,8 +254,8 @@ async function writePhase() {
     if (tmpKey) created.push(tmpKey)
     let stopped = false
     try { await createIssue.run({ project: PROJECT, issue_type: 'Task', summary: `${stamp} budget 2` }, tight) }
-    catch (e) { stopped = /Limit zapisów/.test(e.message) }
-    must(stopped, 'budżet nie zatrzymał drugiego tworzenia')
+    catch (e) { stopped = /Session write limit/.test(e.message) }
+    must(stopped, 'the budget did not stop the second creation')
     resetWriteBudget()
     return 'stop OK'
   })
@@ -264,7 +264,7 @@ async function writePhase() {
 async function cleanupCreated() {
   for (const key of created) {
     try { await client.jiraFetch(config, `/rest/api/2/issue/${key}?deleteSubtasks=true`, { method: 'DELETE' }) }
-    catch (e) { console.error(`  ! nie usunięto ${key}: ${e.message}`) }
+    catch (e) { console.error(`  ! failed to delete ${key}: ${e.message}`) }
   }
 }
 
@@ -272,7 +272,7 @@ async function cleanupCreated() {
 
 if (CLEAN) {
   const removed = await cleanLeftovers()
-  console.log(removed.length ? `Usunięto zaległe: ${removed.join(', ')}` : 'Brak zaległych [selftest] ticketów.')
+  console.log(removed.length ? `Removed leftovers: ${removed.join(', ')}` : 'No leftover [selftest] tickets.')
   process.exit(0)
 }
 
@@ -281,7 +281,7 @@ console.log(`\nSELF-TEST — projekt ${PROJECT} @ ${server}  (${WRITE ? 'read+wr
 await readPhase()
 if (WRITE) {
   await writePhase()
-  console.log(`Sprzątanie: usuwam ${created.length} utworzonych ticketów…`)
+  console.log(`Cleanup: deleting ${created.length} created tickets…`)
   await cleanupCreated()
 }
 
@@ -292,5 +292,5 @@ for (const r of results) {
   console.log(`${r.ok ? '✓' : '✗'}  ${r.name.padEnd(46)} ${r.detail}`)
 }
 console.log(line)
-console.log(`${pass}/${results.length} przeszło.${WRITE ? ` Utworzone i skasowane: ${created.join(', ') || '—'}.` : ''}\n`)
+console.log(`${pass}/${results.length} passed.${WRITE ? ` Created and deleted: ${created.join(', ') || '—'}.` : ''}\n`)
 process.exit(pass === results.length ? 0 : 1)

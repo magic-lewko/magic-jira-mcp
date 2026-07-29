@@ -1,69 +1,58 @@
 # jira-claude-plugin
 
-Talk to Jira in plain language through Claude — sprint reports, finding bugs by
-description, creating and editing tickets. One MCP server works in both Claude
-Desktop and Claude Code.
-
-16 tools · 8 skills. Full examples: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md) · spec: [SPEC.md](SPEC.md).
+Use Claude to work with Jira. One MCP server works in Claude Desktop and Claude Code.
+The plugin has 16 tools and 9 skills. See the usage in [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md). See the spec in [SPEC.md](SPEC.md).
 
 ## Requirements
 
-- Node.js ≥ 20 (`node -v`)
-- Jira access (VPN if needed) + your own Personal Access Token: Jira → avatar → **Personal Access Tokens** → **Create token**
+- Node.js 20 or later. Check the version with `node -v`.
+- Access to Jira. Turn on the VPN if your Jira needs it.
+- A Personal Access Token. In Jira, open the avatar menu. Then select Personal Access Tokens. Then select Create token.
 
 ## Install
 
-Same repository, two apps:
+**Claude Desktop.** Open Settings. Go to Plugins. Click Add. Click "Add from a repository".
+Paste `https://github.com/magic-lewko/magic-jira-mcp`. Turn on "Sync automatically". Click Add.
+Then open the plugin settings and type the Jira URL and the token.
 
-**Claude Desktop** — Settings → **Plugins** → **Add** → **Add from a repository** →
-paste `https://github.com/magic-lewko/magic-jira-mcp` → turn on **Sync automatically** → Add.
-
-**Claude Code** — run:
+**Claude Code.** Run these commands:
 
 ```text
 /plugin marketplace add https://github.com/magic-lewko/magic-jira-mcp
 /plugin install jira-tools@magic-jira-mcp
+/jira-tools:jira-setup          # URL, token, language, project
+/jira-tools:jira-config PROJ    # project profile
 ```
 
-## Configure
+The setup is done when you see "Logged in as …". Then ask `show my tasks in PROJ`.
 
-Run the setup skill (`/jira-tools:jira-setup` in Claude Code, or just ask
-"set up Jira" in Desktop) and give it your Jira URL, token, language and default project.
-Then `/jira-tools:jira-config PROJ` to save the project profile.
+## Update
 
-Done when you see "Logged in as …". Then try `show my tasks in PROJ`.
-
-## Updates
-
-New versions ship to the repo's `main` branch. With **Sync automatically** on, Desktop
-picks them up; otherwise re-sync the marketplace (Plugins → Add → the repo → Sync). In
-Claude Code: `/plugin marketplace update magic-jira-mcp` then `/plugin install jira-tools@magic-jira-mcp`.
+New versions go to the `main` branch.
+In Claude Code, run `/plugin marketplace update magic-jira-mcp`. Then run `/plugin install jira-tools@magic-jira-mcp`.
+In Claude Desktop, sync the marketplace again. "Sync automatically" does this for you.
+After an update in Claude Code, run `/jira-tools:jira-update` to clean the config.
 
 ## What it does
 
-Read: my tasks, ticket details/ranges, status history, boards/sprints, epic
-status, **sprint health report**, **find a bug by description + environment**, story audit.
-
-Write: create tickets per platform, edit fields, comment, attach files, change
-status, link issues, assign to epic. Creation always shows a preview and waits
-for your confirmation.
-
-Skills: `jira-setup`, `jira-config`, `get-tasks`, `sprint-health`, `check-stories`,
-`find-bug`, `create-task`, `feedback`.
+Read: your tasks, ticket details, status history, boards, sprints, epic status, the sprint health report, a bug search by description, and a story audit.
+Write: create tickets per platform, edit fields, add comments, attach files, change status, link tickets, and attach tickets to an epic. Each write shows a preview first.
 
 ## Safety
 
-Session budget (hard stop against creation loops) · duplicate guard · one ticket
-per call · `/create-task` always previews first · AI-created tickets get an
-`ai-generated` label.
+- The session budget stops a create loop.
+- The duplicate guard blocks a repeat ticket.
+- The plugin creates one ticket per call.
+- `/jira-tools:create-task` shows a preview first.
+- The plugin adds the `ai-generated` label to each ticket it creates.
 
 ## For developers
 
 ```text
 npm install
 npm test            # unit tests
-npm run build       # server bundle (after every change in src/)
-npm run selftest    # self-test on a live board (-- --write)
+npm run build       # build the server bundle after each change in src/
+npm run selftest    # self-test on a live board. Add -- --write for writes.
 ```
 
-Branches: `develop` → `uat` → `main`.
+Branches: `develop`, then `uat`, then `main`.

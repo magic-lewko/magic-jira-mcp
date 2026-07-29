@@ -35,7 +35,7 @@ function selectBoard(boards, boardId, projectKey) {
   if (boards.length === 1) return { board: boards[0] }
   if (boards.length === 0) return { board: null }
   const list = boards.map((b) => `- ${b.id}: ${b.name} (${b.type})`).join('\n')
-  return { prompt: `Projekt ${projectKey} ma ${boards.length} boardów — wywołaj ponownie z board_id, wybierając właściwy:\n${list}` }
+  return { prompt: `Project ${projectKey} has ${boards.length} boards — call again with board_id to pick the right one:\n${list}` }
 }
 
 /**
@@ -108,13 +108,13 @@ export default {
     }
 
     return [
-      `Profil projektu ${key} (${proj.name ?? key}):`,
-      board ? `Board: ${board.name} (id ${board.id})` : 'Board: nie znaleziono boardu Agile.',
-      statuses.length ? `Statusy (kolejność kolumn): ${statuses.join(' → ')}` : 'Statusy: brak konfiguracji kolumn.',
-      `Pole Epic Link: ${epicField ? epicField.id : 'nie wykryto'}`,
-      `Pole Sprint: ${sprintField ? sprintField.id : 'nie wykryto'}`,
+      `Project profile ${key} (${proj.name ?? key}):`,
+      board ? `Board: ${board.name} (id ${board.id})` : 'Board: no Agile board found.',
+      statuses.length ? `Statuses (column order): ${statuses.join(' → ')}` : 'Statuses: no column configuration.',
+      `Epic Link field: ${epicField ? epicField.id : 'not detected'}`,
+      `Sprint field: ${sprintField ? sprintField.id : 'not detected'}`,
       '',
-      'Do zapisania w ~/.config/jira-tools/config.json pod kluczem projects.' + key + ':',
+      'Save in ~/.config/jira-tools/config.json under projects.' + key + ':',
       '```json',
       JSON.stringify(profile, null, 2),
       '```',

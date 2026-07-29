@@ -18,18 +18,18 @@ Monorepo = marketplace + plugin: the repo root is a plugin marketplace (`.claude
 
 - MCP server: stdio transport, server name `jira`, entry `plugins/jira-tools/servers/jira-mcp.mjs`, source split into `plugins/jira-tools/src/` — `jira-client.mjs` (all HTTP), `config.mjs`, `format.mjs`, `tools/` (one file = one MCP tool).
 - Skills (slash commands) in `plugins/jira-tools/skills/*/SKILL.md`.
-- `references/` — generic reference scripts showing the proven fetch/auth/formatting patterns, key-range expansion (`PROJ-98..111`), pagination, and dry-run-before-write. Company-specific inputs (plans, rename maps, refs) come from args/JSON files, never hardcoded. Reuse their logic in the MCP server.
 
 ## Key constraints
 
 - Node.js >= 20, pure ESM (`.mjs`). Runtime deps: only `@modelcontextprotocol/sdk` and `zod` (tool input validation). Tests use `node:test`, no frameworks.
 - Tools return concise formatted text (never raw JSON), optimized for LLM context. Fetch minimal fields by default; `description` and comments only in `get_issue`.
 - All tools (read + write: `create_issue`, `update_issue`, `add_comment`, `add_attachment`, `transition_issue`, `assign_to_epic`, `link_issues`) are always registered — there is NO write-mode/`allowWrite` gate. Server-side write rails (code, not skill instructions) guard against AI mistakes, not user intent: one issue per call, session write budget (default 10 creates / 30 writes, `writeBudget` in config or `JIRA_WRITE_BUDGET_*` env; hard stop against loops), duplicate guard on `create_issue` (`allow_duplicate=true` only after explicit user confirmation), and `/create-task`'s mandatory dry-run. AI transparency is always on: created issues get an `ai-generated` label and comments a signature suffix — enforced in code.
-- Config precedence (first wins): env vars (`JIRA_SERVER`, `JIRA_TOKEN`, `JIRA_DEFAULT_PROJECT`, `JIRA_LANG`) → `~/.config/jira-tools/config.json` → no config: server still starts, every tool returns "run /jira-tools:jira-setup".
+- Config precedence (first wins): env vars (`JIRA_SERVER`, `JIRA_TOKEN`, `JIRA_DEFAULT_PROJECT`, `JIRA_LANG`) → `~/.config/jira-tools/config.json` → no config: server still starts, every tool returns "run /jira-tools:jira-setup". In **Claude Desktop** the agent has no filesystem access, so the connection comes from the plugin's `userConfig` (declared in `plugin.json`, mapped to those env vars via `.mcp.json` `${user_config.*}`) — Desktop prompts for URL/token at install. `loadConfig` ignores empty or unexpanded `${...}` env values so the config-file fallback (Claude Code) still works. `/jira-update` reconciles a Claude Code config with the current schema after a plugin update (keeps server+token, drops obsolete fields).
 - Per-user project profiles live in the config's `projects` section (statuses, boardId, epic link field, components), populated by the `/jira-config <project>` skill — tools read the profile instead of guessing status names. Default status list (fallback when no profile): To Do, To Fix, In Progress, Code Review, Dev Done, On Hold, Ready for QA, QA, Done. Business days = Mon–Fri, holidays ignored.
 - All HTTP goes through a single `jiraFetch(path, opts)`: auth, 30 s timeout, error mapping in one place (401 → token expired + how to generate a new PAT; 404 → "KEY not found"; other → status + first 300 chars of body). Never log the token.
-- `search_issues` paginates via `startAt`; on truncation append `"(pokazano X z Y — zawęź JQL lub zwiększ max_results)"`.
-- Code and comments in English; end-user-facing messages follow `JIRA_LANG` (pl/en).
+- `search_issues` paginates via `startAt`; on truncation append `"(showing X of Y — narrow the JQL or raise max_results)"`.
+- **Everything in the repo is English** — code, comments, docs, SPEC, skill instructions, tool descriptions, and the runtime strings the server shows users (errors, format labels like "DESCRIPTION:"/"Unassigned", budget/duplicate refusals). No Polish anywhere in the repo. The ONLY language-variable text is the ticket CONTENT that `/create-task` writes into Jira (description + acceptance criteria) — that follows `JIRA_LANG` (pl/en), generated at runtime, not stored in the repo.
+- User-facing docs (README, `docs/use-cases.md`) follow Structured Technical English (ASD-STE100): one instruction per sentence, ≤20 words for instructions / ≤25 for description, active voice, imperative for steps, one name per thing, no contractions, no phrasal verbs, no semicolons, no marketing words.
 
 ## Branching
 

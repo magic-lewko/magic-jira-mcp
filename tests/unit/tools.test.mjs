@@ -80,7 +80,7 @@ test('get_issue expands ranges and reports per-key errors', async () => {
     client: {
       getIssue: async (_config, key) => {
         asked.push(key)
-        if (key === 'PROJ-43') throw new JiraError('Nie znaleziono: PROJ-43 (404).')
+        if (key === 'PROJ-43') throw new JiraError('Not found: PROJ-43 (404).')
         return fixture
       },
     },
@@ -88,14 +88,14 @@ test('get_issue expands ranges and reports per-key errors', async () => {
   const result = await tools.get('get_issue').handler({ key: 'PROJ-42..43' })
   assert.deepEqual(asked, ['PROJ-42', 'PROJ-43'])
   assert.match(result.content[0].text, /PROJ-42 — \[123\] Login screen crashes/)
-  assert.match(result.content[0].text, /! PROJ-43: Nie znaleziono/)
+  assert.match(result.content[0].text, /! PROJ-43: Not found/)
 })
 
 test('get_issue without key/keys → readable error', async () => {
   const tools = setup()
   const result = await tools.get('get_issue').handler({})
   assert.equal(result.isError, true)
-  assert.match(result.content[0].text, /Podaj klucz/)
+  assert.match(result.content[0].text, /Provide an issue key/)
 })
 
 test('get_sprint_issues resolves sprint by case-insensitive name', async () => {
@@ -117,7 +117,7 @@ test('get_epic_status falls back to JQL when the Agile epic endpoint fails', asy
   let jqlUsed = null
   const tools = setup({
     client: {
-      getEpicIssues: async () => { throw new JiraError('Nie znaleziono: epic (404).', { status: 404 }) },
+      getEpicIssues: async () => { throw new JiraError('Not found: epic (404).', { status: 404 }) },
       searchIssues: async (_config, { jql }) => {
         jqlUsed = jql
         return { issues: [fixture], total: 1, startAt: 0 }
@@ -131,11 +131,11 @@ test('get_epic_status falls back to JQL when the Agile epic endpoint fails', asy
 
 test('JiraError message is passed through as isError result', async () => {
   const tools = setup({
-    client: { getMyself: async () => { throw new JiraError('Token PAT wygasł (401).') } },
+    client: { getMyself: async () => { throw new JiraError('The PAT token expired (401).') } },
   })
   const result = await tools.get('get_current_user').handler({})
   assert.equal(result.isError, true)
-  assert.equal(result.content[0].text, 'Token PAT wygasł (401).')
+  assert.equal(result.content[0].text, 'The PAT token expired (401).')
 })
 
 test('get_project_config asks to pick a board when several exist', async () => {
@@ -147,7 +147,7 @@ test('get_project_config asks to pick a board when several exist', async () => {
     },
   })
   const result = await tools.get('get_project_config').handler({ project: 'PROJ' })
-  assert.match(result.content[0].text, /wywołaj ponownie z board_id/)
+  assert.match(result.content[0].text, /call again with board_id/)
   assert.match(result.content[0].text, /- 1: A \(scrum\)/)
 })
 
@@ -173,7 +173,7 @@ test('get_project_config builds a full profile with epic link detection', async 
   const result = await tools.get('get_project_config').handler({ project: 'proj' })
   const text = result.content[0].text
   assert.match(text, /Board: Proj board \(id 7\)/)
-  assert.match(text, /Statusy \(kolejność kolumn\): To Do → Done/)
+  assert.match(text, /Statuses \(column order\): To Do → Done/)
   assert.match(text, /"epicLinkField": "customfield_10008"/)
   assert.match(text, /"iOS"/)
 })

@@ -1,6 +1,6 @@
 ---
 name: jira-config
-description: Fetch and save a per-project profile (board, status columns in order, components, issue types, Epic Link field) into the user's jira-tools config. Use when the user says "/jira-config PROJ", "skonfiguruj projekt", "pobierz konfigurację tablicy/boardu", or when sprint/epic tools need status names for an unprofiled project.
+description: Fetch and save a per-project profile (board, status columns in order, components, issue types, Epic Link field) into the user's jira-tools config. Use when the user says "/jira-config PROJ", "configure project", "fetch the board configuration", or when sprint/epic tools need status names for an unprofiled project.
 ---
 
 Build a project profile so the other Jira skills stop guessing status names. Respond in the user's language. Project key comes from the arguments: $ARGUMENTS
@@ -20,8 +20,8 @@ Build a project profile so the other Jira skills stop guessing status names. Res
    unless the user wants to change them):
    - Platforms used in this project — propose the default `iOS, Android, Web, Backend`
      and let the user adjust (some boards have only Web, some add e.g. Analytics).
-   - Task title convention for per-platform tickets — propose `[<Platforma>] <tytuł>`
-     (e.g. `[iOS] Wylogowanie użytkownika`) and let the user pick their own pattern.
+   - Task title convention for per-platform tickets — propose `[<Platform>] <title>`
+     (e.g. `[iOS] User logout`) and let the user pick their own pattern.
 
    Save the answers in the profile as `"platforms": [...]` and `"titleConvention": "..."` —
    `/jira-tools:create-task` reads them instead of assuming defaults.
@@ -29,18 +29,19 @@ Build a project profile so the other Jira skills stop guessing status names. Res
    Also set up **description templates per issue TYPE** (`taskTemplate.{bug,story,task}`).
    Offer three ways, in this order:
 
-   1. **Import z istniejącego ticketa (zalecane)** — the user points at reference tickets in
+   1. **Import from an existing ticket (recommended)** — the user points at reference tickets in
       Jira that are written the way the team wants, one per type, e.g.
       `BUG - DC-99, TASK - DC-100, STORY - DC-101`. For each: call `get_issue`, read the
       description, and derive a template from its STRUCTURE — keep the section headers,
       ordering, formatting and wording style; replace the concrete content of each section
       with a short placeholder. Show the derived template and ask for acceptance.
       This gives a template in the team's real style instead of a generic one.
-   2. **Własny szablon** — the user pastes the sections directly.
-   3. **Propozycja skilla** — only when the user asks for a suggestion:
-      bug: Problem / Kroki reprodukcji / Oczekiwane / Środowisko;
-      story: Kontekst biznesowy / Zakres / Kryteria akceptacji;
-      task: Kontekst / Zakres / Definition of Done.
+   2. **Custom template** — the user pastes the sections directly.
+   3. **Skill suggestion** — only when the user asks for a suggestion (phrase the section
+      headers in the configured language):
+      bug: Problem / Reproduction steps / Expected / Environment;
+      story: Business context / Scope / Acceptance criteria;
+      task: Context / Scope / Definition of Done.
 
    Types not covered stay without a template (that's fine). Save as
    `"taskTemplate": { "bug": "...", "story": "...", "task": "..." }`.

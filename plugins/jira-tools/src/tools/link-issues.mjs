@@ -37,9 +37,9 @@ export default {
   async run({ from, to, type }, { config, client }) {
     const source = from.trim().toUpperCase()
     const targets = expandKeys(to).filter((k) => k !== source)
-    if (targets.length === 0) throw new JiraError('Podaj co najmniej jedno zadanie docelowe (różne od źródłowego).')
+    if (targets.length === 0) throw new JiraError('Provide at least one target issue (different from the source).')
     if (targets.length > MAX_TARGETS) {
-      throw new JiraError(`Za dużo powiązań naraz (${targets.length}, limit ${MAX_TARGETS}).`)
+      throw new JiraError(`Too many links at once (${targets.length}, limit ${MAX_TARGETS}).`)
     }
 
     const wanted = (type ?? 'Relates').trim().toLowerCase()
@@ -47,7 +47,7 @@ export default {
     const match = issueLinkTypes.find((t) => t.name?.toLowerCase() === wanted)
     if (!match) {
       const names = [...new Set(issueLinkTypes.map((t) => `"${t.name}"`))].join(', ') || '(brak)'
-      throw new JiraError(`Nieznany typ powiązania "${type}". Dostępne: ${names}.`)
+      throw new JiraError(`Unknown link type "${type}". Available: ${names}.`)
     }
 
     for (let i = 0; i < targets.length; i++) consumeWriteBudget(config, 'write')
@@ -55,6 +55,6 @@ export default {
     for (const target of targets) {
       await client.linkIssues(config, { type: match.name, from: source, to: target })
     }
-    return `Powiązano ${source} (${match.name}) z: ${targets.join(', ')} — ${config.server}/browse/${source}`
+    return `Linked ${source} (${match.name}) to: ${targets.join(', ')} — ${config.server}/browse/${source}`
   },
 }

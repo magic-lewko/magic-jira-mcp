@@ -6,7 +6,7 @@ export default {
   config: {
     title: 'Get current user',
     description: 'Verify the connection and token: returns the authenticated Jira user. '
-      + 'Used by /jira-tools:jira-setup as the final "Zalogowano jako X" check.',
+      + 'Used by /jira-tools:jira-setup as the final "Logged in as X" check.',
     inputSchema: {},
   },
 
@@ -18,6 +18,6 @@ export default {
   async run(_args, { config, client }) {
     const me = await client.getMyself(config)
     const id = me.name ?? me.emailAddress
-    return `Zalogowano jako ${me.displayName ?? id}${id ? ` (${id})` : ''} — ${config.server}`
+    return `Logged in as ${me.displayName ?? id}${id ? ` (${id})` : ''} — ${config.server}`
   },
 }

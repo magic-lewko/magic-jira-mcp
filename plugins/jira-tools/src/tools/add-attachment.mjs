@@ -46,17 +46,17 @@ export default {
       size = stats.size
     } catch {
       throw new JiraError(
-        `Nie znaleziono pliku: ${path}. Podaj pełną ścieżkę do istniejącego pliku `
-        + '(zrzut wklejony do rozmowy trzeba najpierw zapisać na dysku).',
+        `File not found: ${path}. Provide the full path to an existing file `
+        + '(save an image pasted into the chat to disk first).',
       )
     }
     if (size > MAX_BYTES) {
-      throw new JiraError(`Plik jest za duży (${Math.round(size / 1024 / 1024)} MB, limit ${MAX_BYTES / 1024 / 1024} MB).`)
+      throw new JiraError(`File is too large (${Math.round(size / 1024 / 1024)} MB, limit ${MAX_BYTES / 1024 / 1024} MB).`)
     }
 
     const name = (filename ?? basename(path)).trim()
     consumeWriteBudget(config, 'write')
     await client.addAttachment(config, issueKey, { filename: name, bytes: readFileSync(path) })
-    return `Dodano załącznik "${name}" (${Math.max(1, Math.round(size / 1024))} kB) do ${issueKey} — ${config.server}/browse/${issueKey}`
+    return `Added attachment "${name}" (${Math.max(1, Math.round(size / 1024))} kB) do ${issueKey} — ${config.server}/browse/${issueKey}`
   },
 }

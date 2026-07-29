@@ -1,13 +1,13 @@
 ---
 name: find-bug
-description: Semantic bug lookup - the user describes a problem in their own words and this skill finds the matching Jira bug(s), their status and deployment environment. Also handles "czy taki bug już istnieje?" (dedup before reporting) and "wypisz otwarte bugi dotyczące X". Use for questions like "czy problem z X jest już naprawiony", "is the bug with Y fixed on UAT", "znajdź buga o...".
+description: Semantic bug lookup - the user describes a problem in their own words and this skill finds the matching Jira bug(s), their status and deployment environment. Also handles "does such a bug already exist?" (dedup before reporting) and "list open bugs about X". Use for questions like "is the problem with X already fixed", "is the bug with Y fixed on UAT", "find a bug about...".
 ---
 
 Find the bug the user means. Respond in the user's language. The description: $ARGUMENTS
 
 ## Steps
 
-1. **Extract 2–4 keywords** from the description — technical nouns beat verbs. IMPORTANT: prepare both Polish AND English variants (tickets are written in both), e.g. "powiadomienia/notifications", "licznik/counter", "udostępnianie/sharing".
+1. **Extract 2–4 keywords** from the description — technical nouns beat verbs. IMPORTANT: search each keyword in both English AND its Polish equivalent, because tickets are written in both languages (e.g. for "notifications", "counter", "sharing" also query the matching Polish terms).
 
 2. **Search per variant** with `search_issues`, one query per keyword (don't AND them together):
    `project = <PROJECT> AND issuetype = Bug AND text ~ "<keyword>" ORDER BY updated DESC`
@@ -20,5 +20,5 @@ Find the bug the user means. Respond in the user's language. The description: $A
 
 ## Variants
 
-- **"Czy taki bug już istnieje?"** (dedup before filing): same search; answer explicitly "istnieje: KEY (status)" or "nie znalazłem — można zgłaszać", listing near-matches.
-- **"Wypisz otwarte bugi dotyczące X"**: `project = <PROJECT> AND issuetype = Bug AND text ~ "X" AND status in ("To Do", "In Progress", "Code Review")` (status list from the project profile when available; add "To Fix" if the profile has it). Summarize each bug in one line — goal: a quick "what's already reported" overview.
+- **"Does such a bug already exist?"** (dedup before filing): same search; answer explicitly "exists: KEY (status)" or "not found — you can report it", listing near-matches.
+- **"List open bugs about X"**: `project = <PROJECT> AND issuetype = Bug AND text ~ "X" AND status in ("To Do", "In Progress", "Code Review")` (status list from the project profile when available; add "To Fix" if the profile has it). Summarize each bug in one line — goal: a quick "what's already reported" overview.

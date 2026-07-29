@@ -20,7 +20,7 @@ export default {
    */
   async run({ board_id }, { config, client }) {
     const sprint = await client.getActiveSprint(config, board_id)
-    if (!sprint) return `Board ${board_id} nie ma aktywnego sprintu.`
+    if (!sprint) return `Board ${board_id} has no active sprint.`
     return formatSprint(sprint)
   },
 }

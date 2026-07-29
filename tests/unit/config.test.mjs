@@ -49,6 +49,27 @@ test('no env and no file → null (not configured)', () => {
   assert.equal(config, null)
 })
 
+test('empty or unexpanded ${user_config} env falls back to the file (Desktop safety)', () => {
+  const { dir, path } = tempConfig({ server: 'https://jira.file.example.pl', token: 'file-token' })
+  try {
+    // unfilled userConfig arriving as empty string OR as the literal placeholder
+    for (const bad of ['', '${user_config.jira_server}']) {
+      const config = loadConfig({
+        env: { JIRA_SERVER: bad, JIRA_TOKEN: bad, JIRA_LANG: bad },
+        path,
+      })
+      assert.equal(config.server, 'https://jira.file.example.pl')
+      assert.equal(config.token, 'file-token')
+      assert.equal(config.language, 'pl') // default, not the junk placeholder
+    }
+    // a real userConfig value wins over the file
+    const filled = loadConfig({ env: { JIRA_SERVER: 'https://jira.env.example.pl' }, path })
+    assert.equal(filled.server, 'https://jira.env.example.pl')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('server without token (and vice versa) → null', () => {
   assert.equal(loadConfig({ env: { JIRA_SERVER: 'https://jira.example.pl' }, path: 'missing.json' }), null)
   assert.equal(loadConfig({ env: { JIRA_TOKEN: 'secret' }, path: 'missing.json' }), null)

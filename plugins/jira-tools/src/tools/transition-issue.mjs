@@ -32,15 +32,15 @@ export default {
     const wanted = transition_name.trim().toLowerCase()
     const match = transitions.find((t) => t.name?.toLowerCase() === wanted)
     if (!match) {
-      const available = transitions.map((t) => `"${t.name}"`).join(', ') || '(brak dostępnych przejść)'
+      const available = transitions.map((t) => `"${t.name}"`).join(', ') || '(no available transitions)'
       throw new JiraError(
-        `Brak przejścia "${transition_name}" dla ${issueKey}. Dostępne przejścia: ${available}.`,
+        `No transition "${transition_name}" for ${issueKey}. Available transitions: ${available}.`,
       )
     }
 
     consumeWriteBudget(config, 'write')
     await client.doTransition(config, issueKey, match.id)
     const target = match.to?.name ? ` → status: ${match.to.name}` : ''
-    return `${issueKey}: wykonano przejście "${match.name}"${target}.`
+    return `${issueKey}: transitioned to "${match.name}"${target}.`
   },
 }

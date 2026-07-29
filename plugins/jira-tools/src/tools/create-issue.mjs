@@ -21,7 +21,7 @@ async function resolveField(config, client, project, { profileKey, fieldName, cu
   const field = fields.find((f) => f.name === fieldName)
     ?? fields.find((f) => f.schema?.custom?.endsWith(customSuffix))
   if (!field) {
-    throw new JiraError(`Nie wykryto pola ${fieldName} — uruchom /jira-tools:jira-config dla projektu albo pomiń ten parametr.`)
+    throw new JiraError(`Field not found: ${fieldName} — run /jira-tools:jira-config for the project, or omit this parameter.`)
   }
   return field.id
 }
@@ -71,9 +71,9 @@ export default {
       const duplicate = await findDuplicate(config, client, project, summary)
       if (duplicate) {
         throw new JiraError(
-          `Nie utworzono — w projekcie ${project} istnieje już otwarte zadanie o tym tytule: `
+          `Not created — project ${project} already has an open issue with this title: `
           + `${duplicate.key} („${duplicate.fields?.summary}", status: ${duplicate.fields?.status?.name ?? '?'}). `
-          + 'Jeśli duplikat jest zamierzony i potwierdzony przez użytkownika, wywołaj ponownie z allow_duplicate=true.',
+          + 'If the duplicate is intended and the user confirmed it, call again with allow_duplicate=true.',
         )
       }
     }
@@ -102,6 +102,6 @@ export default {
 
     consumeWriteBudget(config, 'create')
     const created = await client.createIssue(config, fields)
-    return `Utworzono ${created.key} — ${config.server}/browse/${created.key}`
+    return `Created ${created.key} — ${config.server}/browse/${created.key}`
   },
 }

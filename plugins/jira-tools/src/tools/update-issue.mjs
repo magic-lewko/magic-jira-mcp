@@ -50,11 +50,11 @@ export default {
       const name = args.assignee.trim()
       const clearing = name === '' || name.toLowerCase() === 'unassigned'
       fields.assignee = { name: clearing ? null : name }
-      changed.push(clearing ? 'assignee → (nieprzypisany)' : `assignee → ${name}`)
+      changed.push(clearing ? 'assignee → (unassigned)' : `assignee → ${name}`)
     }
     if (args.labels) {
       fields.labels = args.labels
-      changed.push(`labels → ${args.labels.join(', ') || '(puste)'}`)
+      changed.push(`labels → ${args.labels.join(', ') || '(empty)'}`)
     }
     if (args.add_labels?.length) {
       // Read-modify-write so adding never wipes labels the caller did not know about.
@@ -65,25 +65,25 @@ export default {
     }
     if (args.components) {
       fields.components = args.components.map((name) => ({ name }))
-      changed.push(`komponenty → ${args.components.join(', ') || '(puste)'}`)
+      changed.push(`components → ${args.components.join(', ') || '(empty)'}`)
     }
     if (args.priority) {
       fields.priority = { name: args.priority }
-      changed.push(`priorytet → ${args.priority}`)
+      changed.push(`priority → ${args.priority}`)
     }
     if (args.description !== undefined) {
       fields.description = args.description
-      changed.push('opis (zastąpiony)')
+      changed.push('description (replaced)')
     }
 
     if (Object.keys(fields).length === 0) {
       throw new JiraError(
-        'Nie podano żadnego pola do zmiany. Dostępne: assignee, labels, add_labels, components, priority, description.',
+        'No field to change was provided. Available: assignee, labels, add_labels, components, priority, description.',
       )
     }
 
     consumeWriteBudget(config, 'write')
     await client.updateIssue(config, issueKey, fields)
-    return `Zaktualizowano ${issueKey}: ${changed.join(' · ')} — ${config.server}/browse/${issueKey}`
+    return `Updated ${issueKey}: ${changed.join(' · ')} — ${config.server}/browse/${issueKey}`
   },
 }

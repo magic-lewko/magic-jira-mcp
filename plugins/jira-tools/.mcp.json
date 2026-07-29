@@ -2,7 +2,13 @@
   "mcpServers": {
     "jira": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/servers/jira-mcp.mjs"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/servers/jira-mcp.mjs"],
+      "env": {
+        "JIRA_SERVER": "${user_config.jira_server}",
+        "JIRA_TOKEN": "${user_config.jira_token}",
+        "JIRA_LANG": "${user_config.jira_language}",
+        "JIRA_DEFAULT_PROJECT": "${user_config.jira_default_project}"
+      }
     }
   }
 }

@@ -26,15 +26,15 @@ export default {
 
     if (sprint_id === undefined) {
       if (board_id === undefined || !sprint_name) {
-        throw new JiraError('Podaj sprint_id albo parę board_id + sprint_name.')
+        throw new JiraError('Provide sprint_id or the board_id + sprint_name pair.')
       }
       const sprints = await client.listSprints(config, board_id)
       const wanted = sprint_name.trim().toLowerCase()
       sprint = sprints.find((s) => s.name?.toLowerCase() === wanted)
         ?? sprints.find((s) => s.name?.toLowerCase().includes(wanted))
       if (!sprint) {
-        const names = sprints.map((s) => s.name).join(', ') || '(brak sprintów)'
-        throw new JiraError(`Nie znaleziono sprintu "${sprint_name}" na boardzie ${board_id}. Dostępne: ${names}.`)
+        const names = sprints.map((s) => s.name).join(', ') || '(no sprints)'
+        throw new JiraError(`Sprint not found: "${sprint_name}" on board ${board_id}. Available: ${names}.`)
       }
     }
 

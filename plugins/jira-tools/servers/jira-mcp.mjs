@@ -21132,14 +21132,18 @@ function readConfigFile(path) {
 }
 function loadConfig({ env = process.env, path = configPath() } = {}) {
   const file = readConfigFile(path);
-  const server = env.JIRA_SERVER || file.server;
-  const token = env.JIRA_TOKEN || file.token;
+  const fromEnv = (value) => {
+    const v = String(value ?? "");
+    return v && !v.includes("${") ? v : void 0;
+  };
+  const server = fromEnv(env.JIRA_SERVER) || file.server;
+  const token = fromEnv(env.JIRA_TOKEN) || file.token;
   if (!server || !token) return null;
   return {
     server: trimTrailingSlashes(String(server)),
     token: String(token),
-    defaultProject: env.JIRA_DEFAULT_PROJECT || file.defaultProject || void 0,
-    language: env.JIRA_LANG || file.language || "pl",
+    defaultProject: fromEnv(env.JIRA_DEFAULT_PROJECT) || file.defaultProject || void 0,
+    language: fromEnv(env.JIRA_LANG) || file.language || "pl",
     projects: typeof file.projects === "object" && file.projects !== null ? file.projects : {},
     // Loop protection only — writes are available by default (no write-mode).
     writeBudget: {
@@ -21243,14 +21247,14 @@ function expandKeys(inputs) {
 function mapHttpError(status, bodyText, what) {
   if (status === 401) {
     return new JiraError(
-      "Token PAT wygas\u0142 lub jest nieprawid\u0142owy (401). Wygeneruj nowy: Jira \u2192 awatar profilu \u2192 Personal Access Tokens \u2192 Create token, a potem uruchom /jira-tools:jira-setup.",
+      "The PAT token expired or is invalid (401). Generate a new one: Jira \u2192 profile avatar \u2192 Personal Access Tokens \u2192 Create token, then run /jira-tools:jira-setup.",
       { status }
     );
   }
   if (status === 404) {
-    return new JiraError(`Nie znaleziono: ${what} (404).`, { status });
+    return new JiraError(`Not found: ${what} (404).`, { status });
   }
-  return new JiraError(`Jira zwr\xF3ci\u0142a b\u0142\u0105d ${status} dla ${what}: ${bodyText.slice(0, 300)}`, { status });
+  return new JiraError(`Jira returned error ${status} for ${what}: ${bodyText.slice(0, 300)}`, { status });
 }
 async function jiraFetch(config2, path, { method = "GET", body, form, what = path, timeoutMs = 3e4 } = {}) {
   const url = `${config2.server}${path}`;
@@ -21272,10 +21276,10 @@ async function jiraFetch(config2, path, { method = "GET", body, form, what = pat
   } catch (err) {
     if (err?.name === "TimeoutError" || err?.name === "AbortError") {
       throw new JiraError(
-        `Przekroczono limit czasu \u017C\u0105dania (${Math.round(timeoutMs / 1e3)} s) dla ${what}. Sprawd\u017A adres serwera Jira oraz po\u0142\u0105czenie (VPN?).`
+        `Request timed out (${Math.round(timeoutMs / 1e3)} s) for ${what}. Check the Jira server URL and the connection (VPN?).`
       );
     }
-    throw new JiraError(`Nie uda\u0142o si\u0119 po\u0142\u0105czy\u0107 z ${config2.server}: ${err?.message ?? err}`);
+    throw new JiraError(`Could not connect to ${config2.server}: ${err?.message ?? err}`);
   }
   if (!res.ok) {
     const text2 = await res.text().catch(() => "");
@@ -21295,7 +21299,7 @@ function query(params) {
 async function searchIssues(config2, { jql, maxResults = 30, fields = LIST_FIELDS, startAt = 0 }) {
   const capped = Math.min(Math.max(1, maxResults), 100);
   const path = `/rest/api/2/search${query({ jql, fields: fields.join(","), startAt, maxResults: capped })}`;
-  const page = await jiraFetch(config2, path, { what: `wyniki JQL "${jql}"` });
+  const page = await jiraFetch(config2, path, { what: `JQL results "${jql}"` });
   return { issues: page.issues ?? [], total: page.total ?? 0, startAt: page.startAt ?? startAt };
 }
 async function fetchAllIssuePages(config2, pathFor, { what, limit = 300 }) {
@@ -21325,20 +21329,20 @@ function getIssue(config2, key, { fields = DETAIL_FIELDS, expand } = {}) {
   return jiraFetch(config2, path, { what: key });
 }
 function getMyself(config2) {
-  return jiraFetch(config2, "/rest/api/2/myself", { what: "profil u\u017Cytkownika (myself)" });
+  return jiraFetch(config2, "/rest/api/2/myself", { what: "current user (myself)" });
 }
 function listBoards(config2, { project } = {}) {
   return fetchAllValuePages(
     config2,
     (startAt) => `/rest/agile/1.0/board${query({ projectKeyOrId: project, startAt, maxResults: 50 })}`,
-    { what: project ? `boardy projektu ${project}` : "lista board\xF3w" }
+    { what: project ? `boards of project ${project}` : "board list" }
   );
 }
 function listSprints(config2, boardId, { state } = {}) {
   return fetchAllValuePages(
     config2,
     (startAt) => `/rest/agile/1.0/board/${boardId}/sprint${query({ state, startAt, maxResults: 50 })}`,
-    { what: `sprinty boardu ${boardId}` }
+    { what: `sprints of board ${boardId}` }
   );
 }
 async function getActiveSprint(config2, boardId) {
@@ -21349,59 +21353,59 @@ function getSprintIssues(config2, sprintId, { fields = LIST_FIELDS } = {}) {
   return fetchAllIssuePages(
     config2,
     (startAt) => `/rest/agile/1.0/sprint/${sprintId}/issue${query({ fields: fields.join(","), startAt, maxResults: 100 })}`,
-    { what: `zadania sprintu ${sprintId}` }
+    { what: `issues of sprint ${sprintId}` }
   );
 }
 function getEpicIssues(config2, epicKey, { fields = LIST_FIELDS } = {}) {
   return fetchAllIssuePages(
     config2,
     (startAt) => `/rest/agile/1.0/epic/${encodeURIComponent(epicKey)}/issue${query({ fields: fields.join(","), startAt, maxResults: 100 })}`,
-    { what: `zadania epica ${epicKey}` }
+    { what: `issues of epic ${epicKey}` }
   );
 }
 function listFields(config2) {
-  return jiraFetch(config2, "/rest/api/2/field", { what: "lista p\xF3l" });
+  return jiraFetch(config2, "/rest/api/2/field", { what: "field list" });
 }
 function listStatuses(config2) {
-  return jiraFetch(config2, "/rest/api/2/status", { what: "lista status\xF3w" });
+  return jiraFetch(config2, "/rest/api/2/status", { what: "status list" });
 }
 function getProject(config2, projectKey) {
-  return jiraFetch(config2, `/rest/api/2/project/${encodeURIComponent(projectKey)}`, { what: `projekt ${projectKey}` });
+  return jiraFetch(config2, `/rest/api/2/project/${encodeURIComponent(projectKey)}`, { what: `project ${projectKey}` });
 }
 function getBoardConfiguration(config2, boardId) {
-  return jiraFetch(config2, `/rest/agile/1.0/board/${boardId}/configuration`, { what: `konfiguracja boardu ${boardId}` });
+  return jiraFetch(config2, `/rest/agile/1.0/board/${boardId}/configuration`, { what: `board configuration for ${boardId}` });
 }
 function createIssue(config2, fields) {
   return jiraFetch(config2, "/rest/api/2/issue", {
     method: "POST",
     body: { fields },
-    what: "tworzenie zadania"
+    what: "create issue"
   });
 }
 function updateIssue(config2, key, fields) {
   return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}`, {
     method: "PUT",
     body: { fields },
-    what: `aktualizacja ${key}`
+    what: `update ${key}`
   });
 }
 function addComment(config2, key, body) {
   return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}/comment`, {
     method: "POST",
     body: { body },
-    what: `komentarz do ${key}`
+    what: `comment on ${key}`
   });
 }
 function listTransitions(config2, key) {
   return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, {
-    what: `przej\u015Bcia statusu ${key}`
+    what: `transitions of ${key}`
   });
 }
 function doTransition(config2, key, transitionId) {
   return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, {
     method: "POST",
     body: { transition: { id: String(transitionId) } },
-    what: `zmiana statusu ${key}`
+    what: `transition of ${key}`
   });
 }
 function addAttachment(config2, key, { filename, bytes }) {
@@ -21410,25 +21414,25 @@ function addAttachment(config2, key, { filename, bytes }) {
   return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}/attachments`, {
     method: "POST",
     form,
-    what: `za\u0142\u0105cznik do ${key}`,
+    what: `attachment on ${key}`,
     timeoutMs: 6e4
   });
 }
 function listIssueLinkTypes(config2) {
-  return jiraFetch(config2, "/rest/api/2/issueLinkType", { what: "typy powi\u0105za\u0144" });
+  return jiraFetch(config2, "/rest/api/2/issueLinkType", { what: "link types" });
 }
 function linkIssues(config2, { type, from, to }) {
   return jiraFetch(config2, "/rest/api/2/issueLink", {
     method: "POST",
     body: { type: { name: type }, outwardIssue: { key: from }, inwardIssue: { key: to } },
-    what: `powi\u0105zanie ${from} \u2194 ${to}`
+    what: `link ${from} \u2194 ${to}`
   });
 }
 function addIssuesToEpic(config2, epicKey, issueKeys) {
   return jiraFetch(config2, `/rest/agile/1.0/epic/${encodeURIComponent(epicKey)}/issue`, {
     method: "POST",
     body: { issues: issueKeys },
-    what: `przypisanie zada\u0144 do epica ${epicKey}`
+    what: `assign issues to epic ${epicKey}`
   });
 }
 
@@ -21443,12 +21447,12 @@ function consumeWriteBudget(config2, kind) {
   const budget = { ...DEFAULT_WRITE_BUDGET, ...config2?.writeBudget };
   const refuse = (used, limit, what) => {
     throw new JiraError(
-      `Limit zapis\xF3w w tej sesji osi\u0105gni\u0119ty (${used}/${limit} \u2014 ${what}). To zabezpieczenie przed niekontrolowan\u0105 p\u0119tl\u0105 tworzenia. Je\u015Bli dzia\u0142asz celowo, zrestartuj serwer (/reload-plugins w Claude Code) i kontynuuj, albo podnie\u015B limit (config "writeBudget" lub env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL).`
+      `Session write limit reached (${used}/${limit} \u2014 ${what}). This protects against an uncontrolled creation loop. If you are doing this on purpose, restart the server (/reload-plugins in Claude Code) and continue, or raise the limit (config "writeBudget" or env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL).`
     );
   };
-  if (counters.total >= budget.total) refuse(counters.total, budget.total, "wszystkie operacje zapisu");
+  if (counters.total >= budget.total) refuse(counters.total, budget.total, "all writes");
   if (kind === "create" && counters.creates >= budget.creates) {
-    refuse(counters.creates, budget.creates, "tworzenie zada\u0144");
+    refuse(counters.creates, budget.creates, "issue creation");
   }
   counters.total += 1;
   if (kind === "create") counters.creates += 1;
@@ -21501,16 +21505,16 @@ var add_attachment_default = {
       size = stats.size;
     } catch {
       throw new JiraError(
-        `Nie znaleziono pliku: ${path}. Podaj pe\u0142n\u0105 \u015Bcie\u017Ck\u0119 do istniej\u0105cego pliku (zrzut wklejony do rozmowy trzeba najpierw zapisa\u0107 na dysku).`
+        `File not found: ${path}. Provide the full path to an existing file (save an image pasted into the chat to disk first).`
       );
     }
     if (size > MAX_BYTES) {
-      throw new JiraError(`Plik jest za du\u017Cy (${Math.round(size / 1024 / 1024)} MB, limit ${MAX_BYTES / 1024 / 1024} MB).`);
+      throw new JiraError(`File is too large (${Math.round(size / 1024 / 1024)} MB, limit ${MAX_BYTES / 1024 / 1024} MB).`);
     }
     const name = (filename ?? basename(path)).trim();
     consumeWriteBudget(config2, "write");
     await client.addAttachment(config2, issueKey, { filename: name, bytes: readFileSync2(path) });
-    return `Dodano za\u0142\u0105cznik "${name}" (${Math.max(1, Math.round(size / 1024))} kB) do ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
+    return `Added attachment "${name}" (${Math.max(1, Math.round(size / 1024))} kB) do ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
   }
 };
 
@@ -21537,7 +21541,7 @@ var add_comment_default = {
 
 _(ai-generated \xB7 jira-tools)_`;
     await client.addComment(config2, issueKey, text);
-    return `Dodano komentarz do ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
+    return `Added a comment to ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
   }
 };
 
@@ -21562,14 +21566,14 @@ var assign_to_epic_default = {
     const epic = epic_key.trim().toUpperCase();
     const expanded = expandKeys(keys);
     if (expanded.length === 0) {
-      throw new JiraError("Podaj co najmniej jeden klucz zadania (obs\u0142ugiwane zakresy: PROJ-98..111).");
+      throw new JiraError("Provide at least one issue key (ranges supported: PROJ-98..111).");
     }
     if (expanded.length > MAX_KEYS) {
-      throw new JiraError(`Za du\u017Co zada\u0144 naraz (${expanded.length}, limit ${MAX_KEYS}). Podziel na mniejsze partie.`);
+      throw new JiraError(`Too many issues at once (${expanded.length}, limit ${MAX_KEYS}). Split into smaller batches.`);
     }
     for (let i = 0; i < expanded.length; i++) consumeWriteBudget(config2, "write");
     await client.addIssuesToEpic(config2, epic, expanded);
-    return `Przypisano ${expanded.length} zada\u0144 do epica ${epic}: ${expanded.join(", ")} \u2014 ${config2.server}/browse/${epic}`;
+    return `Linked ${expanded.length} issues to epic ${epic}: ${expanded.join(", ")} \u2014 ${config2.server}/browse/${epic}`;
   }
 };
 
@@ -21580,7 +21584,7 @@ async function resolveField(config2, client, project, { profileKey, fieldName, c
   const fields = await client.listFields(config2);
   const field = fields.find((f) => f.name === fieldName) ?? fields.find((f) => f.schema?.custom?.endsWith(customSuffix));
   if (!field) {
-    throw new JiraError(`Nie wykryto pola ${fieldName} \u2014 uruchom /jira-tools:jira-config dla projektu albo pomi\u0144 ten parametr.`);
+    throw new JiraError(`Field not found: ${fieldName} \u2014 run /jira-tools:jira-config for the project, or omit this parameter.`);
   }
   return field.id;
 }
@@ -21616,7 +21620,7 @@ var create_issue_default = {
       const duplicate = await findDuplicate(config2, client, project, summary);
       if (duplicate) {
         throw new JiraError(
-          `Nie utworzono \u2014 w projekcie ${project} istnieje ju\u017C otwarte zadanie o tym tytule: ${duplicate.key} (\u201E${duplicate.fields?.summary}", status: ${duplicate.fields?.status?.name ?? "?"}). Je\u015Bli duplikat jest zamierzony i potwierdzony przez u\u017Cytkownika, wywo\u0142aj ponownie z allow_duplicate=true.`
+          `Not created \u2014 project ${project} already has an open issue with this title: ${duplicate.key} (\u201E${duplicate.fields?.summary}", status: ${duplicate.fields?.status?.name ?? "?"}). If the duplicate is intended and the user confirmed it, call again with allow_duplicate=true.`
         );
       }
     }
@@ -21641,7 +21645,7 @@ var create_issue_default = {
     }
     consumeWriteBudget(config2, "create");
     const created = await client.createIssue(config2, fields);
-    return `Utworzono ${created.key} \u2014 ${config2.server}/browse/${created.key}`;
+    return `Created ${created.key} \u2014 ${config2.server}/browse/${created.key}`;
   }
 };
 
@@ -21666,22 +21670,22 @@ var link_issues_default = {
   async run({ from, to, type }, { config: config2, client }) {
     const source = from.trim().toUpperCase();
     const targets = expandKeys(to).filter((k) => k !== source);
-    if (targets.length === 0) throw new JiraError("Podaj co najmniej jedno zadanie docelowe (r\xF3\u017Cne od \u017Ar\xF3d\u0142owego).");
+    if (targets.length === 0) throw new JiraError("Provide at least one target issue (different from the source).");
     if (targets.length > MAX_TARGETS) {
-      throw new JiraError(`Za du\u017Co powi\u0105za\u0144 naraz (${targets.length}, limit ${MAX_TARGETS}).`);
+      throw new JiraError(`Too many links at once (${targets.length}, limit ${MAX_TARGETS}).`);
     }
     const wanted = (type ?? "Relates").trim().toLowerCase();
     const { issueLinkTypes = [] } = await client.listIssueLinkTypes(config2);
     const match = issueLinkTypes.find((t) => t.name?.toLowerCase() === wanted);
     if (!match) {
       const names = [...new Set(issueLinkTypes.map((t) => `"${t.name}"`))].join(", ") || "(brak)";
-      throw new JiraError(`Nieznany typ powi\u0105zania "${type}". Dost\u0119pne: ${names}.`);
+      throw new JiraError(`Unknown link type "${type}". Available: ${names}.`);
     }
     for (let i = 0; i < targets.length; i++) consumeWriteBudget(config2, "write");
     for (const target of targets) {
       await client.linkIssues(config2, { type: match.name, from: source, to: target });
     }
-    return `Powi\u0105zano ${source} (${match.name}) z: ${targets.join(", ")} \u2014 ${config2.server}/browse/${source}`;
+    return `Linked ${source} (${match.name}) to: ${targets.join(", ")} \u2014 ${config2.server}/browse/${source}`;
   }
 };
 
@@ -21697,40 +21701,40 @@ function formatIssueLine(issue2) {
   const parts = [
     `${issue2.key} [${f.status?.name ?? "?"}]`,
     `${f.issuetype?.name ?? "?"}/${f.priority?.name ?? "?"}`,
-    `\u2014 ${f.summary ?? "(bez tytu\u0142u)"}`,
-    `\xB7 ${f.assignee?.displayName ?? "Nieprzypisany"}`
+    `\u2014 ${f.summary ?? "(no title)"}`,
+    `\xB7 ${f.assignee?.displayName ?? "Unassigned"}`
   ];
   if ((f.labels ?? []).length) parts.push(`\xB7 labels: ${f.labels.join(",")}`);
   if (f.updated) parts.push(`\xB7 upd: ${day(f.updated)}`);
   return parts.join(" ");
 }
 function formatIssueList({ issues, total, startAt = 0 }) {
-  if (issues.length === 0) return "Brak wynik\xF3w.";
+  if (issues.length === 0) return "No results.";
   const lines = issues.map(formatIssueLine);
   const shown = startAt + issues.length;
   if (shown < total) {
-    lines.push(`(pokazano ${shown} z ${total} \u2014 zaw\u0119\u017A JQL lub zwi\u0119ksz max_results)`);
+    lines.push(`(showing ${shown} of ${total} \u2014 narrow the JQL or raise max_results)`);
   }
   return lines.join("\n");
 }
 function descriptionBlock(fields, full) {
-  let description = (fields.description ?? "(brak opisu)").trim() || "(brak opisu)";
+  let description = (fields.description ?? "(no description)").trim() || "(no description)";
   if (!full && description.length > DESCRIPTION_LIMIT) {
     description = `${description.slice(0, DESCRIPTION_LIMIT)}
-\u2026 (opis przyci\u0119ty \u2014 pe\u0142na tre\u015B\u0107: all_comments=true)`;
+\u2026 (description truncated \u2014 full text: all_comments=true)`;
   }
-  return ["", "OPIS:", description];
+  return ["", "DESCRIPTION:", description];
 }
 function attachmentsBlock(fields) {
   const atts = fields.attachment ?? [];
   if (atts.length === 0) return [];
-  return ["", `ZA\u0141\u0104CZNIKI (${atts.length}):`, ...atts.map((a) => `- ${a.filename}  ${a.content}`)];
+  return ["", `ATTACHMENTS (${atts.length}):`, ...atts.map((a) => `- ${a.filename}  ${a.content}`)];
 }
 function commentsBlock(fields, full) {
   const comments = fields.comment?.comments ?? [];
   if (comments.length === 0) return [];
   const shown = full || comments.length <= COMMENT_LIMIT ? comments : comments.slice(-COMMENT_LIMIT);
-  const header = shown.length === comments.length ? `KOMENTARZE (${comments.length}):` : `KOMENTARZE (pokazano ${shown.length} ostatnich z ${comments.length} \u2014 pe\u0142na lista: all_comments=true):`;
+  const header = shown.length === comments.length ? `COMMENTS (${comments.length}):` : `COMMENTS (showing the last ${shown.length} of ${comments.length} \u2014 full list: all_comments=true):`;
   const lines = ["", header];
   for (const c of shown) {
     lines.push(
@@ -21743,15 +21747,15 @@ function commentsBlock(fields, full) {
 function formatIssueFull(issue2, { server, full = false } = {}) {
   const f = issue2.fields ?? {};
   const out = [
-    `${issue2.key} \u2014 ${f.summary ?? "(bez tytu\u0142u)"}`,
-    `${f.issuetype?.name ?? "?"} \xB7 ${f.priority?.name ?? "?"} \xB7 ${f.status?.name ?? "?"} \xB7 ${f.assignee?.displayName ?? "Nieprzypisany"} \xB7 zg\u0142osi\u0142: ${f.reporter?.displayName ?? "?"}`
+    `${issue2.key} \u2014 ${f.summary ?? "(no title)"}`,
+    `${f.issuetype?.name ?? "?"} \xB7 ${f.priority?.name ?? "?"} \xB7 ${f.status?.name ?? "?"} \xB7 ${f.assignee?.displayName ?? "Unassigned"} \xB7 reporter: ${f.reporter?.displayName ?? "?"}`
   ];
   const meta = [];
-  if ((f.components ?? []).length) meta.push(`komponenty: ${f.components.map((c) => c.name).join(", ")}`);
+  if ((f.components ?? []).length) meta.push(`components: ${f.components.map((c) => c.name).join(", ")}`);
   if ((f.labels ?? []).length) meta.push(`labels: ${f.labels.join(", ")}`);
   if ((f.fixVersions ?? []).length) meta.push(`fixVersions: ${f.fixVersions.map((v) => v.name).join(", ")}`);
   if (f.parent) meta.push(`parent/epic: ${f.parent.key} (${f.parent.fields?.summary ?? "?"})`);
-  meta.push(`utworzono: ${day(f.created)}, aktualizacja: ${day(f.updated)}`);
+  meta.push(`created: ${day(f.created)}, updated: ${day(f.updated)}`);
   out.push(meta.join(" \xB7 "));
   if (server) out.push(`${server}/browse/${issue2.key}`);
   out.push(...descriptionBlock(f, full), ...attachmentsBlock(f), ...commentsBlock(f, full));
@@ -21764,14 +21768,14 @@ ${SEPARATOR}
 }
 function formatSprint(sprint) {
   const lines = [`Sprint: ${sprint.name} (${sprint.state}, id: ${sprint.id})`];
-  lines.push(`Daty: ${day(sprint.startDate)} \u2192 ${day(sprint.endDate)}`);
-  if (sprint.goal) lines.push(`Cel: ${sprint.goal}`);
+  lines.push(`Dates: ${day(sprint.startDate)} \u2192 ${day(sprint.endDate)}`);
+  if (sprint.goal) lines.push(`Goal: ${sprint.goal}`);
   return lines.join("\n");
 }
 function formatBoards(boards) {
-  if (boards.length === 0) return "Brak board\xF3w.";
+  if (boards.length === 0) return "No boards.";
   return boards.map((b) => {
-    const project = b.location?.projectKey ? `, projekt: ${b.location.projectKey}` : "";
+    const project = b.location?.projectKey ? `, project: ${b.location.projectKey}` : "";
     return `${b.id} \u2014 ${b.name} (${b.type}${project})`;
   }).join("\n");
 }
@@ -21784,27 +21788,27 @@ function formatChangelog(issue2) {
       lines.push(`${day(h.created)}  ${item.fromString ?? "?"} \u2192 ${item.toString ?? "?"}  (${h.author?.displayName ?? "?"})`);
     }
   }
-  if (lines.length === 0) return `${issue2.key}: brak zmian statusu w historii.`;
-  return [`${issue2.key} \u2014 historia status\xF3w:`, ...lines].join("\n");
+  if (lines.length === 0) return `${issue2.key}: no status changes in history.`;
+  return [`${issue2.key} \u2014 status history:`, ...lines].join("\n");
 }
 function formatEpicStatus(epicKey, { issues, total }) {
-  if (issues.length === 0) return `Epic ${epicKey}: brak zada\u0144 podpi\u0119tych.`;
+  if (issues.length === 0) return `Epic ${epicKey}: no linked issues.`;
   const counts = /* @__PURE__ */ new Map();
   for (const issue2 of issues) {
     const status = issue2.fields?.status?.name ?? "?";
     counts.set(status, (counts.get(status) ?? 0) + 1);
   }
   const open = issues.filter((i) => i.fields?.status?.statusCategory?.key !== "done");
-  const ofTotal = issues.length < total ? ` (z ${total})` : "";
-  const out = [`Epic ${epicKey} \u2014 ${issues.length} zada\u0144${ofTotal}:`];
+  const ofTotal = issues.length < total ? ` (of ${total})` : "";
+  const out = [`Epic ${epicKey} \u2014 ${issues.length} issues${ofTotal}:`];
   for (const [status, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
     out.push(`  ${String(n).padStart(3)}  ${status}`);
   }
   if (open.length) {
-    out.push("", `Otwarte (${open.length}):`);
+    out.push("", `Open (${open.length}):`);
     for (const issue2 of open) out.push(formatIssueLine(issue2));
   } else {
-    out.push("", "Wszystkie zadania zamkni\u0119te.");
+    out.push("", "All issues closed.");
   }
   return out.join("\n");
 }
@@ -21843,7 +21847,7 @@ var search_issues_default = {
       });
       text += `
 
-Dodatkowe pola:
+Extra fields:
 ${lines.join("\n")}`;
     }
     return text;
@@ -21872,15 +21876,15 @@ var transition_issue_default = {
     const wanted = transition_name.trim().toLowerCase();
     const match = transitions.find((t) => t.name?.toLowerCase() === wanted);
     if (!match) {
-      const available = transitions.map((t) => `"${t.name}"`).join(", ") || "(brak dost\u0119pnych przej\u015B\u0107)";
+      const available = transitions.map((t) => `"${t.name}"`).join(", ") || "(no available transitions)";
       throw new JiraError(
-        `Brak przej\u015Bcia "${transition_name}" dla ${issueKey}. Dost\u0119pne przej\u015Bcia: ${available}.`
+        `No transition "${transition_name}" for ${issueKey}. Available transitions: ${available}.`
       );
     }
     consumeWriteBudget(config2, "write");
     await client.doTransition(config2, issueKey, match.id);
     const target = match.to?.name ? ` \u2192 status: ${match.to.name}` : "";
-    return `${issueKey}: wykonano przej\u015Bcie "${match.name}"${target}.`;
+    return `${issueKey}: transitioned to "${match.name}"${target}.`;
   }
 };
 
@@ -21913,11 +21917,11 @@ var update_issue_default = {
       const name = args.assignee.trim();
       const clearing = name === "" || name.toLowerCase() === "unassigned";
       fields.assignee = { name: clearing ? null : name };
-      changed.push(clearing ? "assignee \u2192 (nieprzypisany)" : `assignee \u2192 ${name}`);
+      changed.push(clearing ? "assignee \u2192 (unassigned)" : `assignee \u2192 ${name}`);
     }
     if (args.labels) {
       fields.labels = args.labels;
-      changed.push(`labels \u2192 ${args.labels.join(", ") || "(puste)"}`);
+      changed.push(`labels \u2192 ${args.labels.join(", ") || "(empty)"}`);
     }
     if (args.add_labels?.length) {
       const current = await client.getIssue(config2, issueKey, { fields: ["labels"] });
@@ -21927,24 +21931,24 @@ var update_issue_default = {
     }
     if (args.components) {
       fields.components = args.components.map((name) => ({ name }));
-      changed.push(`komponenty \u2192 ${args.components.join(", ") || "(puste)"}`);
+      changed.push(`components \u2192 ${args.components.join(", ") || "(empty)"}`);
     }
     if (args.priority) {
       fields.priority = { name: args.priority };
-      changed.push(`priorytet \u2192 ${args.priority}`);
+      changed.push(`priority \u2192 ${args.priority}`);
     }
     if (args.description !== void 0) {
       fields.description = args.description;
-      changed.push("opis (zast\u0105piony)");
+      changed.push("description (replaced)");
     }
     if (Object.keys(fields).length === 0) {
       throw new JiraError(
-        "Nie podano \u017Cadnego pola do zmiany. Dost\u0119pne: assignee, labels, add_labels, components, priority, description."
+        "No field to change was provided. Available: assignee, labels, add_labels, components, priority, description."
       );
     }
     consumeWriteBudget(config2, "write");
     await client.updateIssue(config2, issueKey, fields);
-    return `Zaktualizowano ${issueKey}: ${changed.join(" \xB7 ")} \u2014 ${config2.server}/browse/${issueKey}`;
+    return `Updated ${issueKey}: ${changed.join(" \xB7 ")} \u2014 ${config2.server}/browse/${issueKey}`;
   }
 };
 
@@ -21969,10 +21973,10 @@ var get_issue_default = {
   async run({ key, keys, all_comments }, { config: config2, client }) {
     const expanded = expandKeys([key, ...keys ?? []].filter(Boolean));
     if (expanded.length === 0) {
-      throw new JiraError('Podaj klucz zadania w parametrze "key" lub list\u0119 w "keys" (obs\u0142ugiwane zakresy: PROJ-98..111).');
+      throw new JiraError('Provide an issue key in "key" or a list in "keys" (ranges supported: PROJ-98..111).');
     }
     if (expanded.length > MAX_KEYS2) {
-      throw new JiraError(`Za du\u017Co zada\u0144 naraz (${expanded.length}, limit ${MAX_KEYS2}). Zaw\u0119\u017A zakres lub podziel na kilka wywo\u0142a\u0144.`);
+      throw new JiraError(`Too many issues at once (${expanded.length}, limit ${MAX_KEYS2}). Narrow the range or split into several calls.`);
     }
     const results = await Promise.allSettled(expanded.map((k) => client.getIssue(config2, k)));
     const issues = [];
@@ -22026,7 +22030,7 @@ var get_active_sprint_default = {
    */
   async run({ board_id }, { config: config2, client }) {
     const sprint = await client.getActiveSprint(config2, board_id);
-    if (!sprint) return `Board ${board_id} nie ma aktywnego sprintu.`;
+    if (!sprint) return `Board ${board_id} has no active sprint.`;
     return formatSprint(sprint);
   }
 };
@@ -22052,14 +22056,14 @@ var get_sprint_issues_default = {
     let sprint = null;
     if (sprint_id === void 0) {
       if (board_id === void 0 || !sprint_name) {
-        throw new JiraError("Podaj sprint_id albo par\u0119 board_id + sprint_name.");
+        throw new JiraError("Provide sprint_id or the board_id + sprint_name pair.");
       }
       const sprints = await client.listSprints(config2, board_id);
       const wanted = sprint_name.trim().toLowerCase();
       sprint = sprints.find((s) => s.name?.toLowerCase() === wanted) ?? sprints.find((s) => s.name?.toLowerCase().includes(wanted));
       if (!sprint) {
-        const names = sprints.map((s) => s.name).join(", ") || "(brak sprint\xF3w)";
-        throw new JiraError(`Nie znaleziono sprintu "${sprint_name}" na boardzie ${board_id}. Dost\u0119pne: ${names}.`);
+        const names = sprints.map((s) => s.name).join(", ") || "(no sprints)";
+        throw new JiraError(`Sprint not found: "${sprint_name}" on board ${board_id}. Available: ${names}.`);
       }
     }
     const id = sprint?.id ?? sprint_id;
@@ -22128,7 +22132,7 @@ var get_current_user_default = {
   name: "get_current_user",
   config: {
     title: "Get current user",
-    description: 'Verify the connection and token: returns the authenticated Jira user. Used by /jira-tools:jira-setup as the final "Zalogowano jako X" check.',
+    description: 'Verify the connection and token: returns the authenticated Jira user. Used by /jira-tools:jira-setup as the final "Logged in as X" check.',
     inputSchema: {}
   },
   /**
@@ -22139,7 +22143,7 @@ var get_current_user_default = {
   async run(_args, { config: config2, client }) {
     const me = await client.getMyself(config2);
     const id = me.name ?? me.emailAddress;
-    return `Zalogowano jako ${me.displayName ?? id}${id ? ` (${id})` : ""} \u2014 ${config2.server}`;
+    return `Logged in as ${me.displayName ?? id}${id ? ` (${id})` : ""} \u2014 ${config2.server}`;
   }
 };
 
@@ -22154,7 +22158,7 @@ function selectBoard(boards, boardId, projectKey) {
   if (boards.length === 1) return { board: boards[0] };
   if (boards.length === 0) return { board: null };
   const list = boards.map((b) => `- ${b.id}: ${b.name} (${b.type})`).join("\n");
-  return { prompt: `Projekt ${projectKey} ma ${boards.length} board\xF3w \u2014 wywo\u0142aj ponownie z board_id, wybieraj\u0105c w\u0142a\u015Bciwy:
+  return { prompt: `Project ${projectKey} has ${boards.length} boards \u2014 call again with board_id to pick the right one:
 ${list}` };
 }
 async function collectBoardStatuses(config2, client, boardId) {
@@ -22209,13 +22213,13 @@ var get_project_config_default = {
       issueTypes: (proj.issueTypes ?? []).map((t) => t.name)
     };
     return [
-      `Profil projektu ${key} (${proj.name ?? key}):`,
-      board ? `Board: ${board.name} (id ${board.id})` : "Board: nie znaleziono boardu Agile.",
-      statuses.length ? `Statusy (kolejno\u015B\u0107 kolumn): ${statuses.join(" \u2192 ")}` : "Statusy: brak konfiguracji kolumn.",
-      `Pole Epic Link: ${epicField ? epicField.id : "nie wykryto"}`,
-      `Pole Sprint: ${sprintField ? sprintField.id : "nie wykryto"}`,
+      `Project profile ${key} (${proj.name ?? key}):`,
+      board ? `Board: ${board.name} (id ${board.id})` : "Board: no Agile board found.",
+      statuses.length ? `Statuses (column order): ${statuses.join(" \u2192 ")}` : "Statuses: no column configuration.",
+      `Epic Link field: ${epicField ? epicField.id : "not detected"}`,
+      `Sprint field: ${sprintField ? sprintField.id : "not detected"}`,
       "",
-      "Do zapisania w ~/.config/jira-tools/config.json pod kluczem projects." + key + ":",
+      "Save in ~/.config/jira-tools/config.json under projects." + key + ":",
       "```json",
       JSON.stringify(profile, null, 2),
       "```"
@@ -22246,7 +22250,7 @@ var writeTools = [
 ];
 
 // plugins/jira-tools/src/server.mjs
-var NOT_CONFIGURED_MESSAGE = 'Jira nie jest jeszcze skonfigurowana. W Claude Code uruchom /jira-tools:jira-setup. Alternatywnie utw\xF3rz plik ~/.config/jira-tools/config.json z polami "server" i "token" (szczeg\xF3\u0142y: README pluginu jira-tools).';
+var NOT_CONFIGURED_MESSAGE = 'Jira is not configured yet. In Claude Code run /jira-tools:jira-setup. In Claude Desktop fill the Jira URL and token in the plugin settings. Alternatively create ~/.config/jira-tools/config.json with "server" and "token" fields (see the README).';
 function toHandler(tool, { getConfig, client }) {
   return async (args) => {
     const config2 = getConfig();
@@ -22257,7 +22261,7 @@ function toHandler(tool, { getConfig, client }) {
       const text = await tool.run(args ?? {}, { config: config2, client });
       return { content: [{ type: "text", text }] };
     } catch (err) {
-      const text = err instanceof JiraError ? err.message : `Nieoczekiwany b\u0142\u0105d: ${err?.message ?? err}`;
+      const text = err instanceof JiraError ? err.message : `Unexpected error: ${err?.message ?? err}`;
       return { isError: true, content: [{ type: "text", text }] };
     }
   };
@@ -22270,7 +22274,7 @@ function registerTools(server, { getConfig = () => loadConfig(), client = jira_c
   return server;
 }
 function createServer(deps = {}) {
-  const server = new McpServer({ name: "jira", version: "0.4.0" });
+  const server = new McpServer({ name: "jira", version: "0.5.0" });
   registerTools(server, deps);
   return server;
 }

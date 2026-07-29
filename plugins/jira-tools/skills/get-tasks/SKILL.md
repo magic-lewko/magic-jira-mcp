@@ -1,6 +1,6 @@
 ---
 name: get-tasks
-description: List the current user's Jira tasks in a project, optionally narrowed to a sprint and/or labels. Use when the user asks "moje taski", "my tasks", "co mam do zrobienia w PROJ", "/get-tasks PROJ Sprint 12 tags:frontend,urgent" or similar.
+description: List the current user's Jira tasks in a project, optionally narrowed to a sprint and/or labels. Use when the user asks "my tasks", "what's on my plate in PROJ", "/get-tasks PROJ Sprint 12 tags:frontend,urgent" or similar.
 ---
 
 Show the user their tasks. Respond in the user's language. Arguments: $ARGUMENTS
@@ -10,7 +10,7 @@ Format: `<project> [sprint] [tags:a,b,c]` — project falls back to `defaultProj
 
 1. Build JQL and call the `search_issues` MCP tool (server `jira`):
    - Base: `project = <PROJECT> AND assignee = currentUser()`
-   - Sprint given by name: `AND sprint = "<name>"`; the words "current"/"aktualny" → `AND sprint in openSprints()`
+   - Sprint given by name: `AND sprint = "<name>"`; the user asking for the "current" sprint (in any language) → `AND sprint in openSprints()`
    - Tags: `AND labels in (a, b, c)`
    - Order: `ORDER BY status, priority DESC`
 

@@ -46,7 +46,7 @@ export default {
         const values = extras.map((f) => `${f}: ${JSON.stringify(issue.fields?.[f] ?? null)}`)
         return `${issue.key} · ${values.join(' · ')}`
       })
-      text += `\n\nDodatkowe pola:\n${lines.join('\n')}`
+      text += `\n\nExtra fields:\n${lines.join('\n')}`
     }
     return text
   },

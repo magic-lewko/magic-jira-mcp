@@ -1,6 +1,33 @@
 {
   "name": "jira-tools",
-  "version": "0.4.0",
-  "description": "Jira Server (self-hosted, Bearer PAT auth) MCP server and team skills: search, sprint health, story audits, semantic bug lookup",
-  "author": { "name": "magic-lewko" }
+  "version": "0.5.0",
+  "description": "Jira Server (self-hosted, PAT auth) MCP server and team skills",
+  "author": { "name": "magic-lewko" },
+  "userConfig": {
+    "jira_server": {
+      "type": "string",
+      "title": "Jira Server URL",
+      "description": "e.g. https://jira.example.pl (no trailing slash)",
+      "default": ""
+    },
+    "jira_token": {
+      "type": "string",
+      "title": "Personal Access Token (PAT)",
+      "description": "Jira → avatar (top right) → Personal Access Tokens → Create token",
+      "sensitive": true,
+      "default": ""
+    },
+    "jira_language": {
+      "type": "string",
+      "title": "Language of generated content (pl/en)",
+      "description": "Language of descriptions and acceptance criteria when creating tickets",
+      "default": "pl"
+    },
+    "jira_default_project": {
+      "type": "string",
+      "title": "Default project (optional)",
+      "description": "Project key used when you don't provide another, e.g. PROJ",
+      "default": ""
+    }
+  }
 }

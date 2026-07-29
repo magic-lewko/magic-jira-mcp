@@ -24,6 +24,6 @@ export default {
     // Jira cannot label comments — AI transparency lands as a constant signature (always on).
     const text = `${body}\n\n_(ai-generated · jira-tools)_`
     await client.addComment(config, issueKey, text)
-    return `Dodano komentarz do ${issueKey} — ${config.server}/browse/${issueKey}`
+    return `Added a comment to ${issueKey} — ${config.server}/browse/${issueKey}`
   },
 }

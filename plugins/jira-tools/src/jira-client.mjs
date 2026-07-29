@@ -3,9 +3,8 @@
  * mapping, pagination and issue-key range expansion — all in one place.
  *
  * Every request goes through {@link jiraFetch}. Error messages are end-user
- * facing (Polish, per SPEC §4.3) and NEVER contain the token. Debug output
- * goes exclusively to stderr and only when JIRA_DEBUG=1 — stdout belongs to
- * the MCP protocol.
+ * facing (English) and NEVER contain the token. Debug output goes exclusively
+ * to stderr and only when JIRA_DEBUG=1 — stdout belongs to the MCP protocol.
  */
 
 /** Default field set for compact issue lists (SPEC §4.1). */
@@ -43,8 +42,7 @@ export function debug(...args) {
 
 /**
  * Expand issue-key inputs into a flat list. Accepts bare keys plus inclusive
- * ranges: "PROJ-98..111" and "PROJ-98..PROJ-111" (pattern proven in
- * references/jira_show.mjs). Order preserved, duplicates removed.
+ * ranges: "PROJ-98..111" and "PROJ-98..PROJ-111". Order preserved, duplicates removed.
  *
  * @param {string[]} inputs
  * @returns {string[]}
@@ -79,15 +77,15 @@ export function expandKeys(inputs) {
 function mapHttpError(status, bodyText, what) {
   if (status === 401) {
     return new JiraError(
-      'Token PAT wygasł lub jest nieprawidłowy (401). Wygeneruj nowy: Jira → awatar profilu → '
-      + 'Personal Access Tokens → Create token, a potem uruchom /jira-tools:jira-setup.',
+      'The PAT token expired or is invalid (401). Generate a new one: Jira → profile avatar → '
+      + 'Personal Access Tokens → Create token, then run /jira-tools:jira-setup.',
       { status },
     )
   }
   if (status === 404) {
-    return new JiraError(`Nie znaleziono: ${what} (404).`, { status })
+    return new JiraError(`Not found: ${what} (404).`, { status })
   }
-  return new JiraError(`Jira zwróciła błąd ${status} dla ${what}: ${bodyText.slice(0, 300)}`, { status })
+  return new JiraError(`Jira returned error ${status} for ${what}: ${bodyText.slice(0, 300)}`, { status })
 }
 
 /**
@@ -122,11 +120,11 @@ export async function jiraFetch(config, path, { method = 'GET', body, form, what
   } catch (err) {
     if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
       throw new JiraError(
-        `Przekroczono limit czasu żądania (${Math.round(timeoutMs / 1000)} s) dla ${what}. `
-        + 'Sprawdź adres serwera Jira oraz połączenie (VPN?).',
+        `Request timed out (${Math.round(timeoutMs / 1000)} s) for ${what}. `
+        + 'Check the Jira server URL and the connection (VPN?).',
       )
     }
-    throw new JiraError(`Nie udało się połączyć z ${config.server}: ${err?.message ?? err}`)
+    throw new JiraError(`Could not connect to ${config.server}: ${err?.message ?? err}`)
   }
 
   if (!res.ok) {
@@ -163,7 +161,7 @@ function query(params) {
 export async function searchIssues(config, { jql, maxResults = 30, fields = LIST_FIELDS, startAt = 0 }) {
   const capped = Math.min(Math.max(1, maxResults), 100)
   const path = `/rest/api/2/search${query({ jql, fields: fields.join(','), startAt, maxResults: capped })}`
-  const page = await jiraFetch(config, path, { what: `wyniki JQL "${jql}"` })
+  const page = await jiraFetch(config, path, { what: `JQL results "${jql}"` })
   return { issues: page.issues ?? [], total: page.total ?? 0, startAt: page.startAt ?? startAt }
 }
 
@@ -228,7 +226,7 @@ export function getIssue(config, key, { fields = DETAIL_FIELDS, expand } = {}) {
  * @returns {Promise<{displayName?: string, name?: string, emailAddress?: string}>}
  */
 export function getMyself(config) {
-  return jiraFetch(config, '/rest/api/2/myself', { what: 'profil użytkownika (myself)' })
+  return jiraFetch(config, '/rest/api/2/myself', { what: 'current user (myself)' })
 }
 
 /**
@@ -242,7 +240,7 @@ export function listBoards(config, { project } = {}) {
   return fetchAllValuePages(
     config,
     (startAt) => `/rest/agile/1.0/board${query({ projectKeyOrId: project, startAt, maxResults: 50 })}`,
-    { what: project ? `boardy projektu ${project}` : 'lista boardów' },
+    { what: project ? `boards of project ${project}` : 'board list' },
   )
 }
 
@@ -258,7 +256,7 @@ export function listSprints(config, boardId, { state } = {}) {
   return fetchAllValuePages(
     config,
     (startAt) => `/rest/agile/1.0/board/${boardId}/sprint${query({ state, startAt, maxResults: 50 })}`,
-    { what: `sprinty boardu ${boardId}` },
+    { what: `sprints of board ${boardId}` },
   )
 }
 
@@ -286,7 +284,7 @@ export function getSprintIssues(config, sprintId, { fields = LIST_FIELDS } = {})
   return fetchAllIssuePages(
     config,
     (startAt) => `/rest/agile/1.0/sprint/${sprintId}/issue${query({ fields: fields.join(','), startAt, maxResults: 100 })}`,
-    { what: `zadania sprintu ${sprintId}` },
+    { what: `issues of sprint ${sprintId}` },
   )
 }
 
@@ -302,7 +300,7 @@ export function getEpicIssues(config, epicKey, { fields = LIST_FIELDS } = {}) {
   return fetchAllIssuePages(
     config,
     (startAt) => `/rest/agile/1.0/epic/${encodeURIComponent(epicKey)}/issue${query({ fields: fields.join(','), startAt, maxResults: 100 })}`,
-    { what: `zadania epica ${epicKey}` },
+    { what: `issues of epic ${epicKey}` },
   )
 }
 
@@ -313,7 +311,7 @@ export function getEpicIssues(config, epicKey, { fields = LIST_FIELDS } = {}) {
  * @returns {Promise<object[]>}
  */
 export function listFields(config) {
-  return jiraFetch(config, '/rest/api/2/field', { what: 'lista pól' })
+  return jiraFetch(config, '/rest/api/2/field', { what: 'field list' })
 }
 
 /**
@@ -323,7 +321,7 @@ export function listFields(config) {
  * @returns {Promise<object[]>}
  */
 export function listStatuses(config) {
-  return jiraFetch(config, '/rest/api/2/status', { what: 'lista statusów' })
+  return jiraFetch(config, '/rest/api/2/status', { what: 'status list' })
 }
 
 /**
@@ -334,7 +332,7 @@ export function listStatuses(config) {
  * @returns {Promise<object>}
  */
 export function getProject(config, projectKey) {
-  return jiraFetch(config, `/rest/api/2/project/${encodeURIComponent(projectKey)}`, { what: `projekt ${projectKey}` })
+  return jiraFetch(config, `/rest/api/2/project/${encodeURIComponent(projectKey)}`, { what: `project ${projectKey}` })
 }
 
 /**
@@ -345,13 +343,13 @@ export function getProject(config, projectKey) {
  * @returns {Promise<object>}
  */
 export function getBoardConfiguration(config, boardId) {
-  return jiraFetch(config, `/rest/agile/1.0/board/${boardId}/configuration`, { what: `konfiguracja boardu ${boardId}` })
+  return jiraFetch(config, `/rest/agile/1.0/board/${boardId}/configuration`, { what: `board configuration for ${boardId}` })
 }
 
 // --- write operations (Phase 2, registered only behind JIRA_ALLOW_WRITE) ----
 
 /**
- * Create ONE issue. Pattern proven in references/jira_create_subtasks.mjs.
+ * Create ONE issue.
  *
  * @param {object} config
  * @param {object} fields - Jira issue fields payload
@@ -359,7 +357,7 @@ export function getBoardConfiguration(config, boardId) {
  */
 export function createIssue(config, fields) {
   return jiraFetch(config, '/rest/api/2/issue', {
-    method: 'POST', body: { fields }, what: 'tworzenie zadania',
+    method: 'POST', body: { fields }, what: 'create issue',
   })
 }
 
@@ -373,7 +371,7 @@ export function createIssue(config, fields) {
  */
 export function updateIssue(config, key, fields) {
   return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}`, {
-    method: 'PUT', body: { fields }, what: `aktualizacja ${key}`,
+    method: 'PUT', body: { fields }, what: `update ${key}`,
   })
 }
 
@@ -387,7 +385,7 @@ export function updateIssue(config, key, fields) {
  */
 export function addComment(config, key, body) {
   return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}/comment`, {
-    method: 'POST', body: { body }, what: `komentarz do ${key}`,
+    method: 'POST', body: { body }, what: `comment on ${key}`,
   })
 }
 
@@ -400,7 +398,7 @@ export function addComment(config, key, body) {
  */
 export function listTransitions(config, key) {
   return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, {
-    what: `przejścia statusu ${key}`,
+    what: `transitions of ${key}`,
   })
 }
 
@@ -414,7 +412,7 @@ export function listTransitions(config, key) {
  */
 export function doTransition(config, key, transitionId) {
   return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`, {
-    method: 'POST', body: { transition: { id: String(transitionId) } }, what: `zmiana statusu ${key}`,
+    method: 'POST', body: { transition: { id: String(transitionId) } }, what: `transition of ${key}`,
   })
 }
 
@@ -431,7 +429,7 @@ export function addAttachment(config, key, { filename, bytes }) {
   const form = new FormData()
   form.append('file', new Blob([bytes]), filename)
   return jiraFetch(config, `/rest/api/2/issue/${encodeURIComponent(key)}/attachments`, {
-    method: 'POST', form, what: `załącznik do ${key}`, timeoutMs: 60_000,
+    method: 'POST', form, what: `attachment on ${key}`, timeoutMs: 60_000,
   })
 }
 
@@ -442,7 +440,7 @@ export function addAttachment(config, key, { filename, bytes }) {
  * @returns {Promise<{issueLinkTypes: object[]}>}
  */
 export function listIssueLinkTypes(config) {
-  return jiraFetch(config, '/rest/api/2/issueLinkType', { what: 'typy powiązań' })
+  return jiraFetch(config, '/rest/api/2/issueLinkType', { what: 'link types' })
 }
 
 /**
@@ -457,7 +455,7 @@ export function linkIssues(config, { type, from, to }) {
   return jiraFetch(config, '/rest/api/2/issueLink', {
     method: 'POST',
     body: { type: { name: type }, outwardIssue: { key: from }, inwardIssue: { key: to } },
-    what: `powiązanie ${from} ↔ ${to}`,
+    what: `link ${from} ↔ ${to}`,
   })
 }
 
@@ -471,6 +469,6 @@ export function linkIssues(config, { type, from, to }) {
  */
 export function addIssuesToEpic(config, epicKey, issueKeys) {
   return jiraFetch(config, `/rest/agile/1.0/epic/${encodeURIComponent(epicKey)}/issue`, {
-    method: 'POST', body: { issues: issueKeys }, what: `przypisanie zadań do epica ${epicKey}`,
+    method: 'POST', body: { issues: issueKeys }, what: `assign issues to epic ${epicKey}`,
   })
 }

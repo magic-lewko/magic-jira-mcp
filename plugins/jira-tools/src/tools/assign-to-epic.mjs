@@ -35,15 +35,15 @@ export default {
     const epic = epic_key.trim().toUpperCase()
     const expanded = expandKeys(keys)
     if (expanded.length === 0) {
-      throw new JiraError('Podaj co najmniej jeden klucz zadania (obsługiwane zakresy: PROJ-98..111).')
+      throw new JiraError('Provide at least one issue key (ranges supported: PROJ-98..111).')
     }
     if (expanded.length > MAX_KEYS) {
-      throw new JiraError(`Za dużo zadań naraz (${expanded.length}, limit ${MAX_KEYS}). Podziel na mniejsze partie.`)
+      throw new JiraError(`Too many issues at once (${expanded.length}, limit ${MAX_KEYS}). Split into smaller batches.`)
     }
 
     for (let i = 0; i < expanded.length; i++) consumeWriteBudget(config, 'write')
 
     await client.addIssuesToEpic(config, epic, expanded)
-    return `Przypisano ${expanded.length} zadań do epica ${epic}: ${expanded.join(', ')} — ${config.server}/browse/${epic}`
+    return `Linked ${expanded.length} issues to epic ${epic}: ${expanded.join(', ')} — ${config.server}/browse/${epic}`
   },
 }

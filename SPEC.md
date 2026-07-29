@@ -1,31 +1,28 @@
-# SPEC — Plugin Claude Code: integracja z Jira Server (self-hosted)
+# SPEC — Claude Code Plugin: integration with Jira Server (self-hosted)
 
-> Ten dokument jest źródłem prawdy dla implementacji. Buduj dokładnie to, co tu opisano.
-> Przy niejasnościach: zapytaj, zanim zaimplementujesz. Nie dodawaj funkcji spoza specyfikacji.
+> This document is the source of truth for the implementation. Build exactly what is described here.
+> When something is unclear: ask before you implement. Do not add features beyond the specification.
 
-## 1. Cel
+## 1. Goal
 
-Wewnętrzny (prywatny, nie publikowany) plugin Claude Code dla całej firmy — różne zespoły,
-różne boardy — integrujący self-hosted **Jira Server** (nie Cloud!) przez REST API v2
-z autoryzacją **Bearer PAT**. Repo jest bezosobowe: zero danych firmowych (§10).
+An internal (private, unpublished) Claude Code plugin for the whole company — different teams,
+different boards — integrating a self-hosted **Jira Server** (not Cloud!) via REST API v2
+with **Bearer PAT** authorization. The repo is impersonal: zero company data (§10).
 
-Dwie grupy odbiorców:
+Two audiences:
 
-- **Devowie** — używają przez Claude Code (slash commands + naturalny język przez MCP).
-- **PM/analitycy** — używają tego samego serwera MCP przez Claude Desktop / Cowork.
+- **Devs** — use it through Claude Code (slash commands + natural language via MCP).
+- **PMs/analysts** — use the same MCP server through Claude Desktop / Cowork.
 
-## 2. Kontekst techniczny (stałe założenia)
+## 2. Technical context (fixed assumptions)
 
-- Jira: self-hosted, np. `https://jira.example.pl` (URL konfigurowalny, NIGDY hardkodowany).
-- API: `GET/POST {JIRA_SERVER}/rest/api/2/...`, nagłówek `Authorization: Bearer <PAT>`.
-- Agile API (sprinty/boardy): `{JIRA_SERVER}/rest/agile/1.0/...`.
-- Runtime: Node.js >= 20, czysty ESM (`.mjs`), **zero zewnętrznych zależności runtime**
-  poza `@modelcontextprotocol/sdk` i `zod` (walidacja parametrów narzędzi).
-- Istnieją działające skrypty referencyjne w `references/` — pokazują sprawdzony wzorzec
-  fetch/auth/formatowania. Reużyj tej logiki (nagłówki, obsługa błędów, ekspansja zakresów
-  kluczy `PROJ-98..PROJ-111`, paginacja, dry-run przed zapisem).
+- Jira: self-hosted, e.g. `https://jira.example.pl` (URL is configurable, NEVER hardcoded).
+- API: `GET/POST {JIRA_SERVER}/rest/api/2/...`, header `Authorization: Bearer <PAT>`.
+- Agile API (sprints/boards): `{JIRA_SERVER}/rest/agile/1.0/...`.
+- Runtime: Node.js >= 20, pure ESM (`.mjs`), **zero external runtime dependencies**
+  besides `@modelcontextprotocol/sdk` and `zod` (tool parameter validation).
 
-## 3. Struktura repozytorium (monorepo = marketplace + plugin)
+## 3. Repository structure (monorepo = marketplace + plugin)
 
 ```text
 .
@@ -35,125 +32,122 @@ Dwie grupy odbiorców:
 │   └── jira-tools/
 │       ├── .claude-plugin/
 │       │   └── plugin.json
-│       ├── .mcp.json             # definicja serwera MCP (stdio, ${CLAUDE_PLUGIN_ROOT})
+│       ├── .mcp.json             # MCP server definition (stdio, ${CLAUDE_PLUGIN_ROOT})
 │       ├── servers/
-│       │   └── jira-mcp.mjs      # serwer MCP (single-file, self-contained po bundlingu)
-│       ├── src/                  # kod źródłowy serwera podzielony na moduły
-│       │   ├── jira-client.mjs   # warstwa HTTP: auth, fetch, paginacja, błędy
-│       │   ├── config.mjs        # ładowanie konfiguracji (env → plik → błąd z instrukcją)
-│       │   ├── format.mjs        # kompaktowe formatowanie ticketów do tekstu
-│       │   └── tools/            # jeden plik = jedno narzędzie MCP
-│       ├── skills/
-│       │   ├── jira-setup/SKILL.md
-│       │   ├── jira-config/SKILL.md
-│       │   ├── get-tasks/SKILL.md
-│       │   ├── sprint-health/SKILL.md
-│       │   ├── check-stories/SKILL.md
-│       │   ├── find-bug/SKILL.md
-│       │   └── create-task/SKILL.md
-│       └── README.md             # instrukcja instalacji i konfiguracji dla zespołu
-├── references/                   # generyczne skrypty wzorcowe (dane firmowe tylko przez args/pliki)
-│   ├── jira_show.mjs             # pełny detal ticketów + ekspansja zakresów (wzorzec get_issue)
-│   ├── jira_list.mjs             # search + paginacja + kompaktowa lista (wzorzec search_issues)
-│   ├── jira_create_subtasks.mjs  # POST issue + dry-run/--apply, plan z JSON (wzorzec create_issue)
-│   ├── jira_label_updater.mjs    # GET+PUT labels bez duplikatów (wzorzec aktualizacji)
-│   └── jira_unify_names.mjs      # bezpieczny PUT: weryfikacja stanu live, mapa z JSON
+│       │   └── jira-mcp.mjs      # MCP server (single-file, self-contained after bundling)
+│       ├── src/                  # server source code split into modules
+│       │   ├── jira-client.mjs   # HTTP layer: auth, fetch, pagination, errors
+│       │   ├── config.mjs        # config loading (env → file → error with instructions)
+│       │   ├── format.mjs        # compact formatting of tickets to text
+│       │   └── tools/            # one file = one MCP tool
+│       ├── skills/               # one directory = one slash command
+│       │   ├── jira-setup/  jira-config/  jira-update/  get-tasks/
+│       │   ├── sprint-health/  check-stories/  find-bug/
+│       │   └── create-task/  feedback/
+│       ├── docs/use-cases.md     # prompt cheat sheet (STE)
+│       └── README.md             # short pointer to the main README
 ├── scripts/
-│   └── build.mjs                 # esbuild: bunduje src/ → servers/jira-mcp.mjs (npm run build)
+│   └── build.mjs                 # esbuild: bundles src/ → servers/jira-mcp.mjs (npm run build)
 ├── tests/
-│   ├── unit/                     # testy z mockowanym fetch (node:test)
-│   └── integration/              # testy read-only na prawdziwej Jirze (opt-in przez env)
-├── SPEC.md                       # ten plik
-└── CLAUDE.md                     # skrócone zasady pracy nad repo
+│   ├── unit/                     # tests with mocked fetch (node:test)
+│   └── integration/              # read-only tests against a real Jira (opt-in via env)
+├── SPEC.md                       # this file
+└── CLAUDE.md                     # condensed rules for working on the repo
 ```
 
-## 4. Serwer MCP — narzędzia
+## 4. MCP server — tools
 
-Transport: **stdio**. Nazwa serwera: `jira`. Wszystkie narzędzia zwracają **zwięzły tekst**
-(nie surowy JSON), zoptymalizowany pod kontekst LLM. Każde narzędzie waliduje wejście zod-em.
+Transport: **stdio**. Server name: `jira`. All tools return **concise text**
+(not raw JSON), optimized for the LLM context. Every tool validates input with zod.
 
-### 4.1 Odczyt (priorytet — faza 1)
+### 4.1 Read (priority — phase 1)
 
-| Narzędzie             | Parametry                                                                                             | Opis                                                                                                                                                                             |
+| Tool                  | Parameters                                                                                            | Description                                                                                                                                                                       |
 | --------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search_issues`       | `jql` (string, wymagany), `max_results` (int, domyślnie 30, max 100), `fields` (string[], opcjonalne) | Wykonuje dowolny JQL. Fundament — Claude sam składa JQL dla pytań w naturalnym języku. Zwraca kompaktową listę: klucz, typ, status, priorytet, assignee, tytuł, labels, updated. |
-| `get_issue`           | `key` lub `keys` (obsłuż też zakres `PROJ-98..111`), `all_comments?`                                  | Pełny detal: opis, komentarze (autor+data), załączniki (nazwy+URL), komponenty, epic/parent. Oszczędność kontekstu: domyślnie 5 ostatnich komentarzy i opis do 4000 znaków z jawnym dopiskiem o przycięciu; `all_comments=true` znosi limity.  |
-| `list_boards`         | `project` (opcjonalny)                                                                                | Boardy Agile (potrzebne do znalezienia sprintu).                                                                                                                                 |
-| `get_active_sprint`   | `board_id`                                                                                            | Aktywny sprint boardu: nazwa, daty, cel.                                                                                                                                         |
-| `get_sprint_issues`   | `sprint_id` lub (`board_id` + `sprint_name`)                                                          | Taski sprintu, kompaktowo.                                                                                                                                                       |
-| `get_epic_status`     | `epic_key`                                                                                            | Zliczenie dzieci epica per status + lista otwartych. Pole Epic Link różni się per instancja — bierz z profilu projektu (§5.1) lub auto-wykryj przez `/rest/api/2/field`.         |
-| `get_issue_changelog` | `key`                                                                                                 | Historia zmian statusów z datami (potrzebne do "co zmieniło status na done wczoraj" i "bez ruchu 3 dni").                                                                        |
-| `get_current_user`    | —                                                                                                     | Weryfikacja połączenia i tokena: zalogowany użytkownik (`/rest/api/2/myself`). Finałowy test `/jira-setup` ("Zalogowano jako X").                                                |
-| `get_project_config`  | `project`, `board_id?`                                                                                | Metadane projektu pod profil (§5.1): boardy, kolumny→statusy, komponenty, typy zadań, auto-detekcja pola Epic Link. Zaplecze skilla `/jira-config`.                              |
+| `search_issues`       | `jql` (string, required), `max_results` (int, default 30, max 100), `fields` (string[], optional)     | Runs any JQL. The foundation — Claude composes the JQL itself for natural-language questions. Returns a compact list: key, type, status, priority, assignee, title, labels, updated. |
+| `get_issue`           | `key` or `keys` (also handle the range `PROJ-98..111`), `all_comments?`                               | Full detail: description, comments (author+date), attachments (names+URL), components, epic/parent. Context savings: by default the 5 most recent comments and description up to 4000 chars with an explicit truncation note; `all_comments=true` lifts the limits.  |
+| `list_boards`         | `project` (optional)                                                                                 | Agile boards (needed to find a sprint).                                                                                                                                          |
+| `get_active_sprint`   | `board_id`                                                                                            | Active sprint of a board: name, dates, goal.                                                                                                                                    |
+| `get_sprint_issues`   | `sprint_id` or (`board_id` + `sprint_name`)                                                          | Sprint tasks, compact.                                                                                                                                                          |
+| `get_epic_status`     | `epic_key`                                                                                            | Counts the epic's children per status + a list of open ones. The Epic Link field differs per instance — take it from the project profile (§5.1) or auto-detect via `/rest/api/2/field`.         |
+| `get_issue_changelog` | `key`                                                                                                 | History of status changes with dates (needed for "what changed status to done yesterday" and "no movement for 3 days").                                                                        |
+| `get_current_user`    | —                                                                                                     | Verifies the connection and token: logged-in user (`/rest/api/2/myself`). The final test in `/jira-setup` ("Logged in as X").                                                |
+| `get_project_config`  | `project`, `board_id?`                                                                                | Project metadata for the profile (§5.1): boards, columns→statuses, components, issue types, auto-detection of the Epic Link field. Backend for the `/jira-config` skill.                              |
 
-### 4.2 Zapis (faza 2 — za flagą)
+### 4.2 Write (phase 2 — behind a flag)
 
-| Narzędzie          | Parametry                                                                                               | Opis                                                                                                                      |
+| Tool               | Parameters                                                                                              | Description                                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `create_issue`     | `project`, `issue_type`, `summary`, `description`, `components[]`, `labels[]`, `assignee?`, `epic_key?`, `sprint_id?`, `allow_duplicate?` | Tworzy JEDEN ticket. Zwraca klucz + URL. `sprint_id` (z `get_active_sprint`) umieszcza ticket w sprincie — bez niego ląduje w backlogu; pole Sprint/Epic Link z profilu lub auto-detekcji. |
-| `add_comment`      | `key`, `body`                                                                                           | Dodaje komentarz.                                                                                                         |
-| `transition_issue` | `key`, `transition_name`                                                                                | Zmiana statusu (najpierw pobierz dostępne przejścia, dopasuj po nazwie case-insensitive, przy braku — wylistuj dostępne). |
-| `update_issue`     | `key`, `assignee?`, `labels?`, `add_labels?`, `components?`, `priority?`, `description?`                 | Edycja istniejącego zgłoszenia (biała lista pól). `labels`/`components` zastępują listy, `add_labels` dokłada (read-modify-write). Status → `transition_issue`, epic → `assign_to_epic`. |
-| `add_attachment`   | `key`, `path`, `filename?`                                                                              | Wysyła JEDEN plik z dysku jako załącznik (multipart + `X-Atlassian-Token: no-check`, limit 10 MB). Ścieżka wyłącznie jawnie podana przez użytkownika — bez globów. **Obraz wklejony do rozmowy nie jest plikiem**: trafia tylko do kontekstu modelu, narzędzia nie mają dostępu do jego bajtów (potwierdzone w dokumentacji), więc trzeba go najpierw zapisać na dysku. |
-| `link_issues`      | `from`, `to[]` (zakresy, max 20), `type?` (domyślnie „Relates")                                         | Tworzy powiązania między zgłoszeniami (POST `/rest/api/2/issueLink`). Typ dopasowany case-insensitive do typów instancji; przy braku — lista dostępnych. `create-task` proponuje podlinkowanie ticketów per platforma jednej story. |
-| `assign_to_epic`   | `epic_key`, `keys[]` (zakresy `PROJ-98..111`, max 20)                                                   | Przypina istniejące zadania do epica (Agile API). Use case analityka: „stories z release'a bez epica → podepnij pod epic". Każde zadanie liczy się do budżetu sesji. |
+| `create_issue`     | `project`, `issue_type`, `summary`, `description`, `components[]`, `labels[]`, `assignee?`, `epic_key?`, `sprint_id?`, `allow_duplicate?` | Creates ONE ticket. Returns key + URL. `sprint_id` (from `get_active_sprint`) places the ticket in the sprint — without it, it lands in the backlog; the Sprint/Epic Link field comes from the profile or auto-detection. |
+| `add_comment`      | `key`, `body`                                                                                           | Adds a comment.                                                                                                         |
+| `transition_issue` | `key`, `transition_name`                                                                                | Status change (first fetch the available transitions, match by name case-insensitively, and if none match — list the available ones). |
+| `update_issue`     | `key`, `assignee?`, `labels?`, `add_labels?`, `components?`, `priority?`, `description?`                 | Edits an existing issue (whitelist of fields). `labels`/`components` replace the lists, `add_labels` appends (read-modify-write). Status → `transition_issue`, epic → `assign_to_epic`. |
+| `add_attachment`   | `key`, `path`, `filename?`                                                                              | Uploads ONE file from disk as an attachment (multipart + `X-Atlassian-Token: no-check`, 10 MB limit). The path must be explicitly provided by the user — no globs. **An image pasted into the conversation is not a file**: it only reaches the model's context, and the tools do not have access to its bytes (confirmed in the documentation), so it must first be saved to disk. |
+| `link_issues`      | `from`, `to[]` (ranges, max 20), `type?` (default "Relates")                                            | Creates links between issues (POST `/rest/api/2/issueLink`). The type is matched case-insensitively to the instance's types; if none match — a list of available ones. `create-task` proposes linking the per-platform tickets of a single story. |
+| `assign_to_epic`   | `epic_key`, `keys[]` (ranges `PROJ-98..111`, max 20)                                                    | Attaches existing tasks to an epic (Agile API). Analyst use case: "stories from a release without an epic → attach them under the epic". Each task counts against the session budget. |
 
-**Zasada bezpieczeństwa zapisu:** NIE ma „trybu zapisu" — wszystkie narzędzia (odczyt i zapis)
-są rejestrowane zawsze, a zapis działa domyślnie. Bezpieczniki chronią przed pomyłką AI,
-nie przed użytkownikiem. Bez configu każde narzędzie zwraca instrukcję setupu, więc nic nie
-zostanie zapisane przed konfiguracją.
+**Write safety principle:** there is no "write mode" — all tools (read and write)
+are always registered, and writing works by default. The safeguards protect against an AI mistake,
+not against the user. Without a config, every tool returns setup instructions, so nothing
+will be written before configuration.
 
-**Bezpieczniki zapisu (egzekwowane w kodzie serwera, nie w instrukcjach skilli):**
+**Write safeguards (enforced in the server code, not in skill instructions):**
 
-1. **Jeden ticket na wywołanie** — `create_issue` nie przyjmuje tablic; masowe tworzenie
-   wymaga wielu jawnych, widocznych wywołań.
-2. **Budżet zapisu na sesję** — licznik w procesie serwera: domyślnie 10× `create_issue`
-   i 30 operacji zapisu łącznie. Po przekroczeniu każda operacja zwraca czytelną odmowę
-   (reset = restart serwera / `/reload-plugins`). Konfiguracja: pole `writeBudget`
-   (`{"creates": n, "total": m}`) lub env `JIRA_WRITE_BUDGET_CREATES` /
-   `JIRA_WRITE_BUDGET_TOTAL`. Cel: twardy stop dla niekontrolowanej pętli tworzenia.
-3. **Strażnik duplikatów** — przed utworzeniem `create_issue` szuka otwartego zadania
-   o tym samym (znormalizowanym) tytule w projekcie; trafienie ⇒ odmowa ze wskazaniem
-   istniejącego klucza, chyba że jawnie przekazano `allow_duplicate=true` (wyłącznie po
-   potwierdzeniu przez użytkownika). Ograniczenie: opiera się na indeksie tekstowym Jiry,
-   który dla świeżo utworzonych ticketów aktualizuje się z opóźnieniem — dwa identyczne
-   utworzenia w odstępie sekund mogą oba przejść. Twardym zabezpieczeniem przed pętlą jest
-   budżet sesji (p.2), nie ten strażnik.
-4. **Obowiązkowy dry-run w `/create-task`** — pełny podgląd i potwierdzenie przed każdym
-   utworzeniem; plus własne prompty uprawnień Claude Code przy każdym wywołaniu narzędzia.
+1. **One ticket per call** — `create_issue` does not accept arrays; bulk creation
+   requires many explicit, visible calls.
+2. **Per-session write budget** — a counter in the server process: by default 10× `create_issue`
+   and 30 write operations total. Once exceeded, every operation returns a readable refusal
+   (reset = server restart / `/reload-plugins`). Configuration: the `writeBudget` field
+   (`{"creates": n, "total": m}`) or the env vars `JIRA_WRITE_BUDGET_CREATES` /
+   `JIRA_WRITE_BUDGET_TOTAL`. Purpose: a hard stop for an uncontrolled creation loop.
+3. **Duplicate guard** — before creating, `create_issue` looks for an open task
+   with the same (normalized) title in the project; a hit ⇒ refusal pointing to
+   the existing key, unless `allow_duplicate=true` is explicitly passed (only after
+   user confirmation). Limitation: it relies on Jira's text index,
+   which updates with a delay for freshly created tickets — two identical
+   creations within seconds of each other may both go through. The hard protection against a loop is the
+   session budget (point 2), not this guard.
+4. **Mandatory dry-run in `/create-task`** — a full preview and confirmation before each
+   creation; plus Claude Code's own permission prompts on every tool call.
 
-**Oznaczanie treści AI (transparentność, zawsze włączone):** `create_issue` dokłada w kodzie
-labelkę `ai-generated` (filtrowalna: `labels = ai-generated`), a `add_comment` dokleja
-stały podpis `_(ai-generated · jira-tools)_` — komentarzy Jira nie labelkuje.
+**AI content marking (transparency, always on):** `create_issue` adds, in code, the
+label `ai-generated` (filterable: `labels = ai-generated`), and `add_comment` appends
+a fixed signature `_(ai-generated · jira-tools)_` — Jira comments are not labeled.
 
-### 4.3 Wymagania wspólne
+### 4.3 Common requirements
 
-- **Paginacja:** `search_issues` obsługuje `startAt`; przy obcięciu wyników dopisz na końcu
-  `"(pokazano X z Y — zawęź JQL lub zwiększ max_results)"`.
-- **Oszczędność kontekstu:** domyślnie pobieraj minimalny zestaw pól; `description` i
-  `comment` tylko w `get_issue`.
-- **Błędy:** 401 → komunikat "token wygasł/nieprawidłowy + jak wygenerować nowy PAT";
-  404 → "nie znaleziono KEY"; inne → status + pierwsze 300 znaków body. Nigdy nie loguj tokena.
-- **Timeout:** 30 s na request, czytelny komunikat przy przekroczeniu.
+- **Pagination:** `search_issues` handles `startAt`; when results are truncated append
+  `"(showing X of Y — narrow the JQL or raise max_results)"` at the end.
+- **Context savings:** by default fetch the minimal set of fields; `description` and
+  `comment` only in `get_issue`.
+- **Errors:** 401 → message "token expired/invalid + how to generate a new PAT";
+  404 → "KEY not found"; other → status + the first 300 chars of the body. Never log the token.
+- **Timeout:** 30 s per request, a readable message when exceeded.
 
-## 5. Konfiguracja
+## 5. Configuration
 
-Kolejność ładowania (pierwsze wygrane):
+Load order (first wins):
 
-1. Zmienne środowiskowe: `JIRA_SERVER`, `JIRA_TOKEN`, `JIRA_DEFAULT_PROJECT`, `JIRA_LANG`.
-2. Plik `~/.config/jira-tools/config.json` (prawa 600 przy zapisie).
-3. Brak → serwer startuje, ale każde narzędzie zwraca instrukcję: "uruchom /jira-tools:jira-setup".
+1. Environment variables: `JIRA_SERVER`, `JIRA_TOKEN`, `JIRA_DEFAULT_PROJECT`, `JIRA_LANG`.
+   In **Claude Desktop** (where the agent has no file access) this is the main path: the plugin
+   declares `userConfig` (`jira_server`, `jira_token` + `sensitive`, `jira_language`,
+   `jira_default_project`) in `plugin.json`, and `.mcp.json` maps them to those env vars (`${user_config.*}`).
+   Desktop asks for them at install time — without a file. Unfilled fields (`default: ""` or
+   an unsubstituted `${...}`) are ignored, so the fallback to a file (Claude Code) works.
+2. The file `~/.config/jira-tools/config.json` (mode 600 on write) — written by
+   `/jira-setup` in Claude Code; project profiles (§5.1) only via this path.
+3. None → the server starts, but every tool returns the instruction: "run /jira-tools:jira-setup".
 
-`JIRA_LANG` (`pl`/`en`) — język generowanych opisów/AC przy tworzeniu ticketów. Nie wpływa na odczyt.
+`JIRA_LANG` (`pl`/`en`) — the language of generated descriptions/AC when creating tickets. Does not affect reads.
 
-**Token nigdy nie trafia do repo.** `.gitignore` ma obejmować wszelkie pliki config/env.
+**The token never enters the repo.** `.gitignore` must cover all config/env files.
 
-### 5.1 Profile projektów (per użytkownik)
+### 5.1 Project profiles (per user)
 
-Każdy użytkownik konfiguruje własne projekty — nie ma globalnego defaulta w repo.
-`config.json` zawiera sekcję `projects`: profil per projekt, wypełniany automatycznie przez
-skill `/jira-config <projekt>` (§6). Narzędzia i skille czytają profil zamiast zgadywać
-nazwy statusów i pól:
+Each user configures their own projects — there is no global default in the repo.
+`config.json` contains a `projects` section: a profile per project, filled in automatically by
+the `/jira-config <project>` skill (§6). Tools and skills read the profile instead of guessing
+status and field names:
 
 ```json
 {
@@ -169,11 +163,11 @@ nazwy statusów i pól:
       "epicLinkField": "customfield_XXXXX",
       "sprintField": "customfield_XXXXX",
       "platforms": ["iOS", "Android", "Web", "Backend"],
-      "titleConvention": "[<Platforma>] <tytuł>",
+      "titleConvention": "[<Platform>] <title>",
       "taskTemplate": {
-        "bug": "Kroki reprodukcji:\n1. …\n\nOczekiwane:\n…\n\nFaktyczne:\n…",
-        "story": "Kontekst biznesowy:\n…\n\nKryteria akceptacji:\n- …",
-        "task": "Kontekst:\n…\n\nZakres:\n…\n\nDefinition of Done:\n- …"
+        "bug": "Steps to reproduce:\n1. …\n\nExpected:\n…\n\nActual:\n…",
+        "story": "Business context:\n…\n\nAcceptance criteria:\n- …",
+        "task": "Context:\n…\n\nScope:\n…\n\nDefinition of Done:\n- …"
       },
       "components": ["Frontend", "Backend"],
       "issueTypes": ["Story", "Bug", "Task", "Sub-task"]
@@ -182,155 +176,159 @@ nazwy statusów i pól:
 }
 ```
 
-Gdy profilu brak, obowiązuje domyślna lista statusów (wzorzec, do nadpisania przez profil):
+When there is no profile, the default status list applies (a template, to be overridden by the profile):
 `To Do`, `To Fix`, `In Progress`, `Code Review`, `Dev Done`, `On Hold`, `Ready for QA`,
-`QA`, `Done`. Dodatkowy fallback przy nietypowych nazwach: wbudowane `statusCategory`
-z Jiry (`new` / `indeterminate` / `done`).
+`QA`, `Done`. An additional fallback for unusual names: Jira's built-in `statusCategory`
+(`new` / `indeterminate` / `done`).
 
-## 6. Skille (slash commands)
+## 6. Skills (slash commands)
 
-Każdy skill = katalog z `SKILL.md` (frontmatter: `name`, `description` — opis ma być
-konkretny, bo od niego zależy auto-wywoływanie przez model).
+Each skill = a directory with `SKILL.md` (frontmatter: `name`, `description` — the description must be
+specific, since auto-invocation by the model depends on it).
 
-- **`/jira-setup`** — interaktywna konfiguracja: pyta o URL Jiry, prowadzi przez wygenerowanie
-  PAT (Profil → Personal Access Tokens), pyta o język (pl/en), domyślny projekt, zapisuje
-  do `~/.config/jira-tools/config.json` (chmod 600), na końcu test: `GET /rest/api/2/myself`
-  i wypisuje "Zalogowano jako X".
-- **`/jira-config <projekt>`** — pobiera metadane projektu i zapisuje profil do configu
-  użytkownika (§5.1): boardy projektu (`/rest/agile/1.0/board?projectKeyOrId=`), kolumny →
-  statusy z konfiguracji boardu (`/rest/agile/1.0/board/{id}/configuration`), statusy per typ
-  zadania (`/rest/api/2/project/{key}/statuses`), komponenty i typy zadań
-  (`/rest/api/2/project/{key}`), auto-detekcja pola Epic Link (`/rest/api/2/field`, pole
-  o nazwie "Epic Link"). Przy wielu boardach pyta użytkownika, który jest domyślny.
-  Na końcu wypisuje podsumowanie zapisanego profilu.
-- **`/get-tasks <projekt> [sprint] [tags:a,b,c]`** — moje taski w projekcie; z sprintem —
-  zawężone do sprintu; z tagami — filtr po labels. Pod spodem `search_issues` z JQL typu
+- **`/jira-setup`** — interactive configuration: asks for the Jira URL, walks through generating
+  a PAT (Profile → Personal Access Tokens), asks for the language (pl/en), the default project, writes
+  to `~/.config/jira-tools/config.json` (chmod 600), and finally tests: `GET /rest/api/2/myself`
+  and prints "Logged in as X".
+- **`/jira-config <project>`** — fetches project metadata and writes the profile to the user's
+  config (§5.1): the project's boards (`/rest/agile/1.0/board?projectKeyOrId=`), columns →
+  statuses from the board configuration (`/rest/agile/1.0/board/{id}/configuration`), statuses per issue
+  type (`/rest/api/2/project/{key}/statuses`), components and issue types
+  (`/rest/api/2/project/{key}`), auto-detection of the Epic Link field (`/rest/api/2/field`, the field
+  named "Epic Link"). When there are multiple boards it asks the user which is the default.
+  At the end it prints a summary of the saved profile.
+- **`/jira-update`** — reconciling the config with the schema after a plugin update (Claude Code):
+  keeps `server` and `token`, removes fields from previous versions (e.g. `allowWrite`, `aiLabel`,
+  `writeProjects`), refreshes project profiles, and backs up to `config.json.bak`. Does not touch
+  Desktop (there the config goes through `userConfig`, §5).
+- **`/get-tasks <project> [sprint] [tags:a,b,c]`** — my tasks in a project; with a sprint —
+  narrowed to the sprint; with tags — filtered by labels. Under the hood, `search_issues` with JQL like
   `project = X AND assignee = currentUser() AND sprint = "..." AND labels in (...) ORDER BY status`.
-- **`/sprint-health [board]`** — raport aktywnego sprintu, sekcje:
-  (a) taski bez ruchu ≥3 dni robocze (poza To Do i Done — użyj changelog/updated),
-  (b) nie-Done z nowymi komentarzami z ostatnich 3 dni + 1-zdaniowe podsumowanie każdego,
-  (c) przeniesione do On Hold + ostatni komentarz,
-  (d) braki higieny: bez opisu / labels / komponentu,
-  (e) co przeszło na Done wczoraj.
-  Dni robocze = pon–pt, świąt nie uwzględniamy (np. w poniedziałek "3 dni robocze wstecz"
-  sięga do piątku, czwartku i środy). Nazwy statusów bierz z profilu projektu (§5.1).
-- **`/check-stories <projekt> [sprint]`** — audyt user stories: brak przypisanego sprintu
-  lub brak numeru azurowego w tytule (domyślny regex `\[\d{6,}\]` — 6+ cyfr, np.
-  `[642321] Missing parameters in the event…`; nadpisywalny per projekt polem
-  `storyNumberPattern` w profilu). Nawiasy niepasujące do wzorca — `[F]`, `[iOS]`, `[2024]` —
-  nie liczą się jako numer i są raportowane osobno; poprawności numeru w Azure nie
-  walidujemy. Działa też na jawnej liście kluczy (np. zakres release'a z Notion).
-  Wynik: tabela KEY | problem.
-- **`/find-bug <opis słowny>`** — wyszukiwanie semantyczne: wyciągnij 2-4 słowa kluczowe
-  (PL i EN!), `search_issues` z `text ~` po każdym wariancie, zbierz kandydatów, oceń
-  dopasowanie, dla najlepszego podaj status + na jakim środowisku (fixVersions/labels/komentarze)
-  - link. Gdy brak pewnego trafienia — pokaż top 3 kandydatów z zastrzeżeniem. Obsłuż też
-    wariant "czy taki bug już istnieje?" (deduplikacja) i "wypisz otwarte bugi dotyczące X
-    w kolumnach To Do/In Progress/Code Review".
-- **`/feedback [opis]`** — mini-wywiad o pomysł/problem z pluginem (co, po co, jak boli,
-  przykład) → gotowa wiadomość do wklejenia na Slacka dla opiekunów pluginu; opcjonalnie
-  ticket przez `create_issue` (pełny dry-run, bez wyjątków). Skill niczego sam nie wysyła.
-**Złota zasada skilli zapisu** (`/create-task`, `/feedback`): agent **strukturyzuje to, co
-podał użytkownik, i dopytuje o braki — nigdy nie wymyśla treści**. Pusta sekcja szablonu to
-sygnał do zadania pytania (i delikatnego przyciśnięcia), a nie do wypełnienia domysłem;
-świadomie pominięta sekcja dostaje dosłownie `(do uzupełnienia)`. Szablon istnieje po to,
-by wymusić myślenie użytkownika, nie by dać agentowi miejsce na halucynacje.
+- **`/sprint-health [board]`** — a report on the active sprint, sections:
+  (a) tasks with no movement ≥3 business days (excluding To Do and Done — use changelog/updated),
+  (b) non-Done with new comments from the last 3 days + a one-sentence summary of each,
+  (c) moved to On Hold + the last comment,
+  (d) hygiene gaps: no description / labels / component,
+  (e) what moved to Done yesterday.
+  Business days = Mon–Fri, holidays are ignored (e.g. on Monday "3 business days back"
+  reaches Friday, Thursday and Wednesday). Take status names from the project profile (§5.1).
+- **`/check-stories <project> [sprint]`** — user-story audit: no assigned sprint
+  or no Azure number in the title (default regex `\[\d{6,}\]` — 6+ digits, e.g.
+  `[642321] Missing parameters in the event…`; overridable per project via the
+  `storyNumberPattern` field in the profile). Brackets that do not match the pattern — `[F]`, `[iOS]`, `[2024]` —
+  do not count as a number and are reported separately; we do not validate the number's
+  correctness in Azure. Also works on an explicit list of keys (e.g. a release range from Notion).
+  Result: a KEY | problem table.
+- **`/find-bug <verbal description>`** — semantic search: extract 2-4 keywords
+  (PL and EN!), `search_issues` with `text ~` for each variant, gather candidates, assess the
+  match, and for the best one give status + which environment (fixVersions/labels/comments)
+  and a link. When there is no confident hit — show the top 3 candidates with a caveat. Also handle the
+  variant "does such a bug already exist?" (deduplication) and "list open bugs about X
+  in the To Do/In Progress/Code Review columns".
+- **`/feedback [description]`** — a mini-interview about an idea/problem with the plugin (what, why, how it hurts,
+  example) → a ready-made message to paste into Slack for the plugin maintainers; optionally
+  a ticket via `create_issue` (full dry-run, no exceptions). The skill sends nothing by itself.
+**Golden rule of write skills** (`/create-task`, `/feedback`): the agent **structures what the
+user provided and asks about gaps — it never invents content**. An empty template section is a
+signal to ask a question (and to gently push), not to fill it with a guess;
+a deliberately omitted section gets a literal `(to be filled in)`. The template exists so
+as to force the user to think, not to give the agent room to hallucinate.
 
-Szablony opisu (`taskTemplate` per typ) konfiguruje `/jira-config` na trzy sposoby:
-**import ze wskazanych ticketów wzorcowych** (zalecane — np. `BUG - PROJ-99, TASK - PROJ-100`;
-skill czyta je przez `get_issue` i wyprowadza strukturę sekcji w stylu zespołu), własny
-wklejony szablon albo propozycja skilla.
+Description templates (`taskTemplate` per type) are configured by `/jira-config` in three ways:
+**import from designated reference tickets** (recommended — e.g. `BUG - PROJ-99, TASK - PROJ-100`;
+the skill reads them via `get_issue` and derives the section structure in the team's style), a custom
+pasted template, or the skill's own proposal.
 
-- **`/create-task <opis>`** — (faza 2) tworzy tickety per platforma. Z opisu case'u generuje:
-  tytuł, opis, acceptance criteria (w języku z configu), komponent per platforma
-  (iOS/Android/Web/Backend → osobne tickety). **OBOWIĄZKOWY dry-run:** najpierw wypisz
-  wszystkie tickety do utworzenia w formie podglądu, czekaj na potwierdzenie użytkownika,
-  dopiero potem wywołuj `create_issue`.
+- **`/create-task <description>`** — (phase 2) creates tickets per platform. From the case description it generates:
+  title, description, acceptance criteria (in the language from the config), a component per platform
+  (iOS/Android/Web/Backend → separate tickets). **MANDATORY dry-run:** first list
+  all tickets to be created as a preview, wait for the user's confirmation,
+  and only then call `create_issue`.
 
-## 7. Zasady implementacji (jakość)
+## 7. Implementation rules (quality)
 
-- Node `node:test` do testów, żadnych frameworków.
-- Klient HTTP: jedna funkcja `jiraFetch(path, opts)` — auth, timeout, mapowanie błędów w jednym miejscu.
-- Kod i komentarze po angielsku; komunikaty dla użytkownika końcowego wg `JIRA_LANG`.
-- JSDoc na eksportowanych funkcjach.
-- Żadnego `console.log` w serwerze MCP na stdout (stdout = protokół!). Debug tylko na stderr,
-  za flagą `JIRA_DEBUG=1`.
-- `plugin.json`: name `jira-tools`, semver od `0.1.0`, opis, autor.
+- Node `node:test` for tests, no frameworks.
+- HTTP client: a single `jiraFetch(path, opts)` function — auth, timeout, error mapping in one place.
+- Code and comments in English; end-user messages per `JIRA_LANG`.
+- JSDoc on exported functions.
+- No `console.log` in the MCP server on stdout (stdout = the protocol!). Debug only on stderr,
+  behind the `JIRA_DEBUG=1` flag.
+- `plugin.json`: name `jira-tools`, semver from `0.1.0`, description, author.
 
-## 8. Testy
+## 8. Tests
 
 ### 8.1 Unit (`npm test`)
 
-Mock `globalThis.fetch`. Pokryj:
+Mock `globalThis.fetch`. Cover:
 
-- ekspansję zakresów kluczy (`PROJ-98..111`, `PROJ-98..PROJ-111`, pojedyncze, mieszane),
-- budowanie JQL przez helpery,
-- mapowanie błędów (401/404/500/timeout),
-- formatowanie kompaktowe (snapshot na przykładowym JSON-ie ticketa),
-- config: precedencja env > plik > brak,
-- to, że wszystkie narzędzia (odczyt + zapis) są zawsze zarejestrowane, a bez configu każde zwraca instrukcję setupu.
+- key-range expansion (`PROJ-98..111`, `PROJ-98..PROJ-111`, singles, mixed),
+- building JQL via helpers,
+- error mapping (401/404/500/timeout),
+- compact formatting (a snapshot on a sample ticket JSON),
+- config: precedence env > file > none,
+- the fact that all tools (read + write) are always registered, and without a config each returns the setup instruction.
 
-### 8.2 Integracyjne (opt-in, read-only)
+### 8.2 Integration (opt-in, read-only)
 
-Uruchamiane tylko gdy ustawione `JIRA_TEST_SERVER` + `JIRA_TEST_TOKEN`
-(`npm run test:integration`). Wyłącznie odczyt: `myself`, `search` z prostym JQL,
-`get_issue` na istniejącym kluczu podanym w `JIRA_TEST_ISSUE`. Zero tworzenia/modyfikacji.
+Run only when `JIRA_TEST_SERVER` + `JIRA_TEST_TOKEN` are set
+(`npm run test:integration`). Read-only: `myself`, `search` with a simple JQL,
+`get_issue` on an existing key given in `JIRA_TEST_ISSUE`. Zero creation/modification.
 
-Środowisko testowe (sandbox): projekt `DC` — board "DC board", sprint "DC Sprint 1",
-przykładowe klucze `DC-1`, `DC-16`, `DC-18` (np. `JIRA_TEST_ISSUE=DC-16`). W projekcie DC
-wolno wykonywać manualne testy zapisu (Faza 2); testy automatyczne pozostają read-only.
+Test environment (sandbox): project `DC` — board "DC board", sprint "DC Sprint 1",
+sample keys `DC-1`, `DC-16`, `DC-18` (e.g. `JIRA_TEST_ISSUE=DC-16`). In the DC project
+manual write tests are allowed (Phase 2); automated tests stay read-only.
 
-### 8.3 Test manualny end-to-end (checklist w README)
+### 8.3 Manual end-to-end test (checklist in README)
 
-1. `claude` w dowolnym katalogu → `/plugin marketplace add /ścieżka/do/tego/repo`
-2. `/plugin install jira-tools@<nazwa-marketplace>`
-3. `/jira-tools:jira-setup` → przejść konfigurację → zobaczyć "Zalogowano jako…"
-4. `/mcp` → serwer `jira` widoczny i connected
-5. `/get-tasks <PROJEKT>` → zwraca moje taski
-6. pytanie naturalnym językiem: "które moje taski w `PROJEKT` zmieniły status wczoraj?"
-7. `/sprint-health` → raport z pięcioma sekcjami
-8. po zmianach w kodzie: `/reload-plugins` (SKILL.md łapie się na żywo, .mcp.json wymaga reloadu)
+1. `claude` in any directory → `/plugin marketplace add /path/to/this/repo`
+2. `/plugin install jira-tools@<marketplace-name>`
+3. `/jira-tools:jira-setup` → go through configuration → see "Logged in as…"
+4. `/mcp` → the `jira` server is visible and connected
+5. `/get-tasks <PROJECT>` → returns my tasks
+6. a natural-language question: "which of my tasks in `PROJECT` changed status yesterday?"
+7. `/sprint-health` → a report with five sections
+8. after code changes: `/reload-plugins` (SKILL.md is picked up live, .mcp.json requires a reload)
 
-## 9. Fazy
+## 9. Phases
 
-- **Faza 1 (MVP):** config + klient + narzędzia odczytu + skille `/jira-setup`, `/get-tasks`,
-  `/sprint-health`, `/check-stories`, `/find-bug` + testy unit + README.
-- **Faza 2:** narzędzia zapisu za flagą + `/create-task` z dry-runem.
-- **Faza 3 (poza tym repo, osobna decyzja):** integracja Notion→Jira, wykorzystanie
-  serwera przez PM w Claude Desktop/Cowork (README ma zawierać sekcję konfiguracji
-  dla Claude Desktop z przykładowym wpisem `mcpServers`).
-- **Sprint 3 (zrealizowany):** hook chroniący bezpieczniki (§4.2 p.6), oznaczanie treści
-  AI (§4.2), szablony per typ zadania (§5.1), skill `/feedback` (§6), tryb kompaktowy
-  `get_issue` (§4.1).
-- **Backlog — zgłoszenia z użycia produkcyjnego (przez `/feedback`):**
-  1. ✅ **`update_issue`** (zrealizowane) — edycja istniejącego zgłoszenia na białej liście
-     pól: `assignee`, `labels`/`add_labels`, `components`, `priority`, `description`.
-  2. ✅ **Załączniki** (zrealizowane) — `add_attachment` (plik ze ścieżki na dysku).
-  3. ✅ **`link_issues`** (zrealizowane) — powiązania „Relates"/inne między zgłoszeniami;
-     `create-task` proponuje podlinkowanie ticketów per platforma jednej story.
-  4. **`add_attachment_from_chat`** (do zrobienia) — wysyłka zrzutu **wklejonego do
-     rozmowy**, bez zapisywania go ręcznie. Zweryfikowane empirycznie 2026-07-16:
-     Claude Code zapisuje transkrypt sesji do `~/.claude/projects/<katalog-projektu>/<uuid>.jsonl`,
-     a wklejone obrazy siedzą w nim jako bloki `{"type":"image","source":{"type":"base64",
-     "media_type":"image/png","data":"…"}}` (w sesji roboczej: 16 obrazów). Serwer MCP
-     działa lokalnie, więc może odczytać najświeższy transkrypt, wziąć N-ty od końca blok
-     obrazu (`index`, domyślnie ostatni), zdekodować base64 do pliku tymczasowego i wysłać
-     istniejącą ścieżką `addAttachment`. Do sprawdzenia osobno: lokalizacja transkryptów
-     w Claude Desktop. Bezpieczeństwo: tylko bloki obrazów, tylko bieżący projekt,
-     informacja co zostało znalezione przed wysyłką, te same bezpieczniki co reszta zapisu.
-- **Backlog:** research praktyk zespołów AI-first (wynik: raport z rekomendacjami, nie
-  kod); Notion→Jira po uzyskaniu dostępu do Notion MCP (konfiguracja, nie development).
-- **Odrzucone/odłożone bez terminu:** pamięć kontekstu tasków (źródłem prawdy jest Jira,
-  lokalny cache dryfuje; wraca tylko z konkretnymi scenariuszami użycia).
+- **Phase 1 (MVP):** config + client + read tools + skills `/jira-setup`, `/get-tasks`,
+  `/sprint-health`, `/check-stories`, `/find-bug` + unit tests + README.
+- **Phase 2:** write tools behind a flag + `/create-task` with a dry-run.
+- **Phase 3 (outside this repo, a separate decision):** Notion→Jira integration, use of the
+  server by PMs in Claude Desktop/Cowork (the README should contain a configuration section
+  for Claude Desktop with a sample `mcpServers` entry).
+- **Sprint 3 (done):** a hook protecting the safeguards (§4.2 point 6), AI content
+  marking (§4.2), templates per issue type (§5.1), the `/feedback` skill (§6), the compact mode
+  of `get_issue` (§4.1).
+- **Backlog — items from production use (via `/feedback`):**
+  1. ✅ **`update_issue`** (done) — editing an existing issue on a whitelist of
+     fields: `assignee`, `labels`/`add_labels`, `components`, `priority`, `description`.
+  2. ✅ **Attachments** (done) — `add_attachment` (a file from a path on disk).
+  3. ✅ **`link_issues`** (done) — "Relates"/other links between issues;
+     `create-task` proposes linking the per-platform tickets of a single story.
+  4. **`add_attachment_from_chat`** (to do) — uploading a screenshot **pasted into the
+     conversation**, without saving it manually. Verified empirically 2026-07-16:
+     Claude Code writes the session transcript to `~/.claude/projects/<project-directory>/<uuid>.jsonl`,
+     and pasted images sit in it as blocks `{"type":"image","source":{"type":"base64",
+     "media_type":"image/png","data":"…"}}` (in the working session: 16 images). The MCP server
+     runs locally, so it can read the freshest transcript, take the Nth-from-last image
+     block (`index`, default the last), decode base64 to a temporary file, and upload it via the
+     existing `addAttachment` path. To check separately: the location of transcripts
+     in Claude Desktop. Security: only image blocks, only the current project,
+     information about what was found before uploading, the same safeguards as the rest of writing.
+- **Backlog:** research into AI-first team practices (deliverable: a report with recommendations, not
+  code); Notion→Jira once access to the Notion MCP is obtained (configuration, not development).
+- **Rejected/shelved without a deadline:** task-context memory (Jira is the source of truth, a
+  local cache drifts; it comes back only with concrete usage scenarios).
 
 ## 10. Definition of Done
 
-- `npm test` zielony; `claude plugin validate` bez błędów.
-- Pełna checklista 8.3 przechodzi na czystej instalacji.
-- README wystarcza nowemu członkowi zespołu do samodzielnej instalacji w <10 minut.
-- **Anonimizacja:** grep po repo nie znajduje żadnego tokena, hasła, firmowego URL-a
-  produkcyjnego ani danych firmowych — nazwy firmy, produkcyjnych kluczy projektów,
-  nazw produktów, wewnętrznych nazw branchy. W przykładach używamy neutralnych `PROJ-n`
-  i `https://jira.example.pl`. Jedyne dopuszczalne realne identyfikatory to sandbox
-  testowy `DC` ("DC board", "DC Sprint 1") — używany tylko do czasu pierwszych instalacji.
-  Dane firmowe wchodzą wyłącznie przez lokalny config użytkownika / pliki args (gitignore).
+- `npm test` green; `claude plugin validate` with no errors.
+- The full 8.3 checklist passes on a clean install.
+- The README is enough for a new team member to install on their own in <10 minutes.
+- **Anonymization:** grepping the repo finds no token, password, company production
+  URL, or company data — company name, production project keys,
+  product names, internal branch names. In examples we use neutral `PROJ-n`
+  and `https://jira.example.pl`. The only permissible real identifiers are the test
+  sandbox `DC` ("DC board", "DC Sprint 1") — used only until the first installations.
+  Company data enters exclusively through the user's local config / args files (gitignored).

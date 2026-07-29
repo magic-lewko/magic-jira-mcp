@@ -70,15 +70,24 @@ function readConfigFile(path) {
 export function loadConfig({ env = process.env, path = configPath() } = {}) {
   const file = readConfigFile(path)
 
-  const server = env.JIRA_SERVER || file.server
-  const token = env.JIRA_TOKEN || file.token
+  // In Claude Desktop the connection comes from the plugin's userConfig, injected
+  // as env vars via .mcp.json. An unfilled userConfig field may arrive as an empty
+  // string or (undocumented) as the literal "${user_config.…}" — treat both as
+  // absent so the config-file fallback (Claude Code) still works.
+  const fromEnv = (value) => {
+    const v = String(value ?? '')
+    return v && !v.includes('${') ? v : undefined
+  }
+
+  const server = fromEnv(env.JIRA_SERVER) || file.server
+  const token = fromEnv(env.JIRA_TOKEN) || file.token
   if (!server || !token) return null
 
   return {
     server: trimTrailingSlashes(String(server)),
     token: String(token),
-    defaultProject: env.JIRA_DEFAULT_PROJECT || file.defaultProject || undefined,
-    language: env.JIRA_LANG || file.language || 'pl',
+    defaultProject: fromEnv(env.JIRA_DEFAULT_PROJECT) || file.defaultProject || undefined,
+    language: fromEnv(env.JIRA_LANG) || file.language || 'pl',
     projects: typeof file.projects === 'object' && file.projects !== null ? file.projects : {},
     // Loop protection only — writes are available by default (no write-mode).
     writeBudget: {

@@ -55,7 +55,7 @@ test('create_issue: builds correct POST fields, always adds ai-generated', async
     epic_key: 'proj-40',
   })
   assert.equal(result.isError, undefined)
-  assert.match(result.content[0].text, /Utworzono PROJ-100/)
+  assert.match(result.content[0].text, /Created PROJ-100/)
   assert.deepEqual(sent, {
     project: { key: 'PROJ' },
     issuetype: { name: 'Task' },
@@ -131,13 +131,13 @@ test('create_issue: bracketed titles survive the duplicate check', async () => {
     client: {
       searchIssues: async (_config, { jql }) => {
         jqlUsed = jql
-        return { issues: [{ key: 'PROJ-9', fields: { summary: '[iOS] Wylogowanie użytkownika', status: { name: 'To Do' } } }], total: 1, startAt: 0 }
+        return { issues: [{ key: 'PROJ-9', fields: { summary: '[iOS] User logout', status: { name: 'To Do' } } }], total: 1, startAt: 0 }
       },
       createIssue: async () => ({ key: 'PROJ-999' }),
     },
   })
   const result = await tools.get('create_issue').handler({
-    project: 'PROJ', issue_type: 'Task', summary: '[iOS] Wylogowanie użytkownika',
+    project: 'PROJ', issue_type: 'Task', summary: '[iOS] User logout',
   })
   assert.ok(!jqlUsed.includes('['), `JQL operand must not contain "[", got: ${jqlUsed}`)
   assert.equal(result.isError, true)
@@ -147,12 +147,12 @@ test('create_issue: bracketed titles survive the duplicate check', async () => {
 test('create_issue: a failing duplicate CHECK does not block creation', async () => {
   const tools = setup({
     client: {
-      searchIssues: async () => { throw new JiraError('Jira zwróciła błąd 400: range query incorrect') },
+      searchIssues: async () => { throw new JiraError('Jira returned error 400: range query incorrect') },
       createIssue: async () => ({ key: 'PROJ-999' }),
     },
   })
   const result = await tools.get('create_issue').handler({
-    project: 'PROJ', issue_type: 'Task', summary: 'Zupełnie nowy temat',
+    project: 'PROJ', issue_type: 'Task', summary: 'Brand new item',
   })
   assert.equal(result.isError, undefined)
   assert.match(result.content[0].text, /PROJ-999/)
@@ -177,8 +177,8 @@ test('create_issue: allow_duplicate=true bypasses the duplicate guard', async ()
 test('add_comment: always appends the ai-generated signature', async () => {
   const bodies = []
   const tools = setup({ client: { addComment: async (_config, _key, body) => { bodies.push(body); return {} } } })
-  await tools.get('add_comment').handler({ key: 'PROJ-42', body: 'Retest proszę' })
-  assert.equal(bodies[0], 'Retest proszę\n\n_(ai-generated · jira-tools)_')
+  await tools.get('add_comment').handler({ key: 'PROJ-42', body: 'Retest please' })
+  assert.equal(bodies[0], 'Retest please\n\n_(ai-generated · jira-tools)_')
 })
 
 // --- update_issue ------------------------------------------------------------
@@ -227,7 +227,7 @@ test('update_issue: no fields → readable error, nothing sent', async () => {
   const tools = setup({ client: { updateIssue: async () => { called = true; return null } } })
   const result = await tools.get('update_issue').handler({ key: 'PROJ-42' })
   assert.equal(result.isError, true)
-  assert.match(result.content[0].text, /Nie podano żadnego pola/)
+  assert.match(result.content[0].text, /No field to change/)
   assert.equal(called, false)
 })
 
@@ -236,7 +236,7 @@ test('update_issue: budget stops further writes once exhausted', async () => {
   assert.equal((await tools.get('update_issue').handler({ key: 'PROJ-1', assignee: 'x' })).isError, undefined)
   const exhausted = await tools.get('update_issue').handler({ key: 'PROJ-2', assignee: 'x' })
   assert.equal(exhausted.isError, true)
-  assert.match(exhausted.content[0].text, /Limit zapisów/)
+  assert.match(exhausted.content[0].text, /Session write limit/)
 })
 
 // --- add_attachment ----------------------------------------------------------
@@ -263,7 +263,7 @@ test('add_attachment: missing file → readable error, nothing uploaded', async 
   const tools = setup({ client: { addAttachment: async () => { called = true; return [{}] } } })
   const result = await tools.get('add_attachment').handler({ key: 'PROJ-42', path: join(tmpdir(), 'nie-ma-12345.png') })
   assert.equal(result.isError, true)
-  assert.match(result.content[0].text, /Nie znaleziono pliku/)
+  assert.match(result.content[0].text, /File not found/)
   assert.equal(called, false)
 })
 
@@ -282,7 +282,7 @@ test('assign_to_epic: budget stops the call before any HTTP', async () => {
   const tools = setup({ config: { ...CONFIG, writeBudget: { creates: 10, total: 3 } }, client: { addIssuesToEpic: async () => { posted = true; return null } } })
   const result = await tools.get('assign_to_epic').handler({ epic_key: 'PROJ-200', keys: ['PROJ-101..110'] })
   assert.equal(result.isError, true)
-  assert.match(result.content[0].text, /Limit zapisów/)
+  assert.match(result.content[0].text, /Session write limit/)
   assert.equal(posted, false)
 })
 
@@ -328,9 +328,9 @@ test('link_issues: unknown type lists the available ones and links nothing', asy
   const tools = setup({
     client: { listIssueLinkTypes: async () => LINK_TYPES, linkIssues: async () => { linked = true; return null } },
   })
-  const result = await tools.get('link_issues').handler({ from: 'PROJ-1', to: ['PROJ-2'], type: 'Zależy' })
+  const result = await tools.get('link_issues').handler({ from: 'PROJ-1', to: ['PROJ-2'], type: 'Dependz' })
   assert.equal(result.isError, true)
-  assert.match(result.content[0].text, /Dostępne: "Relates", "Blocks", "Duplicate"/)
+  assert.match(result.content[0].text, /Available: "Relates", "Blocks", "Duplicate"/)
   assert.equal(linked, false)
 })
 
@@ -338,7 +338,7 @@ test('link_issues: drops the source key from targets and rejects an empty set', 
   const tools = setup({ client: { listIssueLinkTypes: async () => LINK_TYPES, linkIssues: async () => null } })
   const result = await tools.get('link_issues').handler({ from: 'PROJ-1', to: ['PROJ-1'] })
   assert.equal(result.isError, true)
-  assert.match(result.content[0].text, /co najmniej jedno zadanie docelowe/)
+  assert.match(result.content[0].text, /at least one target issue/)
 })
 
 // --- add_comment / transition ------------------------------------------------
@@ -350,7 +350,7 @@ test('add_comment: posts (with signature) and returns the browse URL', async () 
   assert.equal(posted.key, 'PROJ-42')
   assert.match(posted.body, /Deployed to UAT/)
   assert.match(posted.body, /ai-generated · jira-tools/)
-  assert.match(result.content[0].text, /Dodano komentarz do PROJ-42/)
+  assert.match(result.content[0].text, /Added a comment to PROJ-42/)
 })
 
 test('transition_issue: matches case-insensitively and reports the target status', async () => {
@@ -363,7 +363,7 @@ test('transition_issue: matches case-insensitively and reports the target status
   })
   const result = await tools.get('transition_issue').handler({ key: 'PROJ-42', transition_name: 'in progress' })
   assert.deepEqual(transitioned, { key: 'PROJ-42', id: '11' })
-  assert.match(result.content[0].text, /wykonano przejście "In Progress" → status: In Progress/)
+  assert.match(result.content[0].text, /transitioned to "In Progress" → status: In Progress/)
 })
 
 test('transition_issue: unknown name lists the available transitions and does not POST', async () => {
@@ -376,7 +376,7 @@ test('transition_issue: unknown name lists the available transitions and does no
   })
   const result = await tools.get('transition_issue').handler({ key: 'PROJ-42', transition_name: 'Zrobione' })
   assert.equal(result.isError, true)
-  assert.match(result.content[0].text, /Dostępne przejścia: "In Progress", "Done"/)
+  assert.match(result.content[0].text, /Available transitions: "In Progress", "Done"/)
   assert.equal(posted, false)
 })
 
@@ -390,7 +390,7 @@ test('budget: creates limit stops further create_issue calls', async () => {
   assert.equal((await create(2)).isError, undefined)
   const third = await create(3)
   assert.equal(third.isError, true)
-  assert.match(third.content[0].text, /Limit zapisów w tej sesji osiągnięty \(2\/2/)
+  assert.match(third.content[0].text, /Session write limit reached \(2\/2/)
 })
 
 test('budget: total limit covers comments and transitions too', () => {
