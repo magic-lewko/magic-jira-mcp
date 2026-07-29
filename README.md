@@ -1,90 +1,64 @@
-# jira-tools 🎫 — Jira, but you just ask Claude
+# jira-tools
 
-Stop clicking around Jira. Ask Claude instead — *"show my tasks in PROJ"*, *"sprint health for PROJ"*, *"create a bug on iOS"*. One MCP server, two homes: **Claude Code** (devs) and **Claude Desktop / Cowork** (analysts, PMs). 16 tools, 9 skills, self-hosted Jira Server.
+Ask Claude about your self-hosted Jira instead of clicking around it. Examples: "show my tasks in PROJ", "sprint health for PROJ", "create a bug on iOS". One MCP server, two homes: Claude Code and Claude Desktop. 16 tools, 9 skills.
 
-Full tour → [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md) · the spec → [SPEC.md](SPEC.md)
+Full tour: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md). Spec: [SPEC.md](SPEC.md).
 
----
-
-## 👉 The only link you need
+## The only link you need
 
 ```text
 https://github.com/magic-lewko/magic-jira-mcp
 ```
 
-Copy it. That is the whole install source for both Claude Code and Desktop. The rest is a 30-second setup below.
-
----
+Copy it. That is the whole install source for both Claude Code and Claude Desktop.
 
 ## Before you start
 
-- **Node.js 20+** — check with `node -v`.
-- **Jira reachable** — VPN on, if your Jira needs it.
-- **A Personal Access Token** — in Jira: avatar (top-right) → *Personal Access Tokens* → *Create token*. Copy it, you paste it once.
+- Node.js 20 or later. Check with `node -v`.
+- Jira reachable. Turn on the VPN if your Jira needs it.
+- A Personal Access Token. In Jira: avatar (top right), then Personal Access Tokens, then Create token.
 
----
-
-## Install — Claude Code (devs)
-
-Paste these, top to bottom:
+## Install in Claude Code
 
 ```text
 /plugin marketplace add https://github.com/magic-lewko/magic-jira-mcp
 /plugin install jira-tools@magic-jira-mcp
-/jira-tools:jira-setup            # asks for URL + token → writes your config
-/jira-tools:jira-config PROJ      # optional: richer project profile (board, statuses, templates)
+/jira-tools:jira-setup            # asks for URL and token, writes the config
+/jira-tools:jira-config PROJ      # optional: project profile (board, statuses, templates)
 ```
 
-You are done when you see **"Logged in as …"**. Then just ask: `show my tasks in PROJ`.
+Done when you see "Logged in as ...". Then ask: show my tasks in PROJ.
 
----
+## Install in Claude Desktop
 
-## Install — Claude Desktop / Cowork (analysts, PMs)
+1. Settings, then Plugins, then Add, then Add marketplace, then Add from a repository. Paste the link above.
+2. Fill in your Jira URL and Personal Access Token when it asks.
+3. Ask: who am I in Jira? You should see your own name.
 
-1. Add the link above as a plugin source (Settings → Plugins).
-2. Put a **`.config/jira-tools/config.json`** in your working folder — this is where your URL + token live:
-
-   ```json
-   {
-     "server": "https://jira.example.pl",
-     "token": "<your-personal-access-token>",
-     "language": "pl",
-     "defaultProject": "PROJ"
-   }
-   ```
-
-3. Ask: `who am I in Jira?` → you should see your own name.
-
-> ⚠️ **Run it "On your computer", not "In the cloud".** The Jira tools connect only on your machine — a cloud task can't reach a self-hosted Jira.
->
-> 🔑 The token sits in that file in plain text: give **each person their own** token, and never commit the file (it is git-ignored).
-
----
+Run it "On your computer", not "In the cloud". The Jira tools connect only on your machine.
 
 ## Update
 
 New versions land on `main`.
 
-- **Claude Code:** `/plugin marketplace update magic-jira-mcp` → `/plugin install jira-tools@magic-jira-mcp` → `/jira-tools:jira-update` (tidies the config).
-- **Desktop:** re-sync the plugin source.
+- Claude Code: `/plugin marketplace update magic-jira-mcp`, then `/plugin install jira-tools@magic-jira-mcp`, then `/jira-tools:jira-update`.
+- Claude Desktop: re-sync the plugin.
 
-Not sure which version you are on? Just ask **"what jira-tools version?"** — the connected server tells you the truth (`get_version`).
+Ask "what jira-tools version?" to see which version is connected.
 
----
+## What it does
 
-## What you get
+Read: your tasks, ticket detail, status history, boards, sprints, epic status, a sprint health report, a bug search by description, a story audit.
 
-**Read** — your tasks, ticket detail, status history, boards, sprints, epic roll-ups, a full sprint-health report, bug search by description, story audit.
-
-**Write** — create tickets per platform, edit fields, comment, attach files, move status, link tickets, attach to an epic. Every write shows a preview first.
+Write: create tickets per platform, edit fields, comment, attach files, change status, link tickets, attach to an epic. Every write shows a preview first.
 
 ## Guardrails
 
-- Session budget kills a runaway create-loop.
+- Session budget stops a runaway create loop.
 - Duplicate guard blocks a repeat ticket.
 - One ticket per call.
-- `/jira-tools:create-task` always previews before it creates.
-- Every ticket the plugin creates gets an `ai-generated` label.
+- `/jira-tools:create-task` previews before it creates.
+- Every created ticket gets an `ai-generated` label.
 
 ## For developers
 
@@ -95,4 +69,4 @@ npm run build     # rebuild the server bundle after any change in src/
 npm run selftest  # live-board self-test (add -- --write for writes)
 ```
 
-Branches: `develop` → `uat` → `main`.
+Branches: `develop`, then `uat`, then `main`.
