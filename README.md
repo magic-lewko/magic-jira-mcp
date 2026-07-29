@@ -1,72 +1,75 @@
 # jira-claude-plugin
 
-Rozmawiasz z Jirą po ludzku przez Claude — raporty sprintu, szukanie bugów po opisie,
-zakładanie i edycja ticketów. Jeden serwer MCP działa w Claude Desktop i w Claude Code.
+Talk to Jira in plain language through Claude — sprint reports, finding bugs by
+description, creating and editing tickets. One MCP server works in both Claude
+Desktop and Claude Code.
 
-16 narzędzi · 8 skilli. Pełne przykłady: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md) · specyfikacja: [SPEC.md](SPEC.md).
+16 tools · 8 skills. Full examples: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md) · spec: [SPEC.md](SPEC.md).
 
-## Wymagania
+## Requirements
 
 - Node.js ≥ 20 (`node -v`)
-- dostęp do Jiry (VPN, jeśli trzeba) + własny token PAT: Jira → awatar → **Personal Access Tokens** → **Create token**
+- Jira access (VPN if needed) + your own Personal Access Token: Jira → avatar → **Personal Access Tokens** → **Create token**
 
 ## Claude Desktop
 
-1. Pobierz repo w stałe miejsce: `git clone https://github.com/magic-lewko/magic-jira-mcp.git`
-2. Claude Desktop → **Settings → Developer → Edit Config** → dopisz (popraw ścieżkę na `/`, URL i token):
+1. Clone the repo somewhere permanent: `git clone https://github.com/magic-lewko/magic-jira-mcp.git`
+2. Claude Desktop → **Settings → Developer → Edit Config** → add (fix the path to use `/`, plus your URL and token):
 
    ```json
    {
      "mcpServers": {
        "jira": {
          "command": "node",
-         "args": ["C:/sciezka/do/repo/plugins/jira-tools/servers/jira-mcp.mjs"],
+         "args": ["C:/path/to/repo/plugins/jira-tools/servers/jira-mcp.mjs"],
          "env": { "JIRA_SERVER": "https://jira.example.pl", "JIRA_TOKEN": "<PAT>" }
        }
      }
    }
    ```
 
-3. Zrestartuj Claude Desktop → zapytaj „kim jestem w Jirze?".
+3. Restart Claude Desktop → ask "who am I in Jira?".
 
-Pytasz naturalnym językiem — komendy `/…` są tylko w Claude Code.
+You talk in plain language — the `/…` commands exist only in Claude Code.
 
 ## Claude Code
 
-Dodaj marketplace i zainstaluj plugin:
+Add the marketplace and install the plugin:
 
 ```text
 /plugin marketplace add https://github.com/magic-lewko/magic-jira-mcp
 /plugin install jira-tools@magic-jira-mcp
-/jira-tools:jira-setup          # URL, token, język, projekt
-/jira-tools:jira-config PROJ    # profil projektu
+/jira-tools:jira-setup          # URL, token, language, project
+/jira-tools:jira-config PROJ    # project profile
 ```
 
-Gotowe, gdy zobaczysz „Zalogowano jako …". Potem np. `pokaż moje taski w PROJ`.
+Done when you see "Logged in as …". Then try `show my tasks in PROJ`.
 
-## Co potrafi
+## What it does
 
-Odczyt: moje taski, szczegóły/zakresy ticketów, historia statusów, boardy/sprinty,
-status epica, **raport zdrowia sprintu**, **szukanie buga po opisie + środowisko**, audyt stories.
+Read: my tasks, ticket details/ranges, status history, boards/sprints, epic
+status, **sprint health report**, **find a bug by description + environment**, story audit.
 
-Zapis: tworzenie ticketów per platforma, edycja pól, komentarze, załączniki, zmiana statusu,
-linkowanie, przypięcie do epica. Tworzenie zawsze z podglądem i potwierdzeniem.
+Write: create tickets per platform, edit fields, comment, attach files, change
+status, link issues, assign to epic. Creation always shows a preview and waits
+for your confirmation.
 
-Skille: `jira-setup`, `jira-config`, `get-tasks`, `sprint-health`, `check-stories`,
+Skills: `jira-setup`, `jira-config`, `get-tasks`, `sprint-health`, `check-stories`,
 `find-bug`, `create-task`, `feedback`.
 
-## Bezpieczeństwo
+## Safety
 
-Budżet sesji (twardy stop przed pętlą tworzenia) · strażnik duplikatów · jeden ticket na
-wywołanie · `/create-task` zawsze z dry-runem · tickety od AI mają labelkę `ai-generated`.
+Session budget (hard stop against creation loops) · duplicate guard · one ticket
+per call · `/create-task` always previews first · AI-created tickets get an
+`ai-generated` label.
 
-## Dla developerów
+## For developers
 
 ```text
 npm install
-npm test            # testy unit
-npm run build       # bundle serwera (po każdej zmianie w src/)
-npm run selftest    # self-test na żywej tablicy (-- --write)
+npm test            # unit tests
+npm run build       # server bundle (after every change in src/)
+npm run selftest    # self-test on a live board (-- --write)
 ```
 
-Gałęzie: `develop` → `uat` → `main`.
+Branches: `develop` → `uat` → `main`.
