@@ -22228,7 +22228,7 @@ var get_project_config_default = {
 };
 
 // plugins/jira-tools/src/version.mjs
-var VERSION = "0.5.2";
+var VERSION = "0.5.3";
 
 // plugins/jira-tools/src/tools/get-version.mjs
 var get_version_default = {

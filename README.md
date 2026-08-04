@@ -1,6 +1,6 @@
 # jira-tools
 
-Ask Claude about your self-hosted Jira instead of clicking around it. Examples: "show my tasks in PROJ", "sprint health for PROJ", "create a bug on iOS". One MCP server, two homes: Claude Code and Claude Desktop. 16 tools, 9 skills.
+Ask Claude about your self-hosted Jira instead of clicking around it. Examples: "show my tasks in PROJ", "sprint health for PROJ", "create a bug on iOS". One MCP server, two homes: Claude Code and Claude Desktop. 17 tools, 9 skills.
 
 Full tour: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md). Spec: [SPEC.md](SPEC.md).
 

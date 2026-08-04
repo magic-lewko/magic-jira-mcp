@@ -1,6 +1,6 @@
 {
   "name": "jira-tools",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Jira Server (self-hosted, PAT auth) MCP server and team skills",
   "author": { "name": "magic-lewko" },
   "userConfig": {

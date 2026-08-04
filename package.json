@@ -1,6 +1,6 @@
 {
   "name": "magic-jira-mcp",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "description": "Private Claude Code plugin marketplace: Jira Server (self-hosted) MCP server + team skills",
   "type": "module",
