@@ -402,5 +402,6 @@ test('budget: total limit covers comments and transitions too', () => {
 
 test('budget: defaults applied when config has none', () => {
   for (let i = 0; i < DEFAULT_WRITE_BUDGET.creates; i++) consumeWriteBudget({}, 'create')
-  assert.throws(() => consumeWriteBudget({}, 'create'), /10\/10/)
+  const limit = DEFAULT_WRITE_BUDGET.creates
+  assert.throws(() => consumeWriteBudget({}, 'create'), new RegExp(`${limit}/${limit}`))
 })

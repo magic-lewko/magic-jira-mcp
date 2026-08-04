@@ -95,8 +95,8 @@ will be written before configuration.
 
 1. **One ticket per call** — `create_issue` does not accept arrays; bulk creation
    requires many explicit, visible calls.
-2. **Per-session write budget** — a counter in the server process: by default 10× `create_issue`
-   and 30 write operations total. Once exceeded, every operation returns a readable refusal
+2. **Per-session write budget** — a counter in the server process: by default 100× `create_issue`
+   and 300 write operations total. Once exceeded, every operation returns a readable refusal
    (reset = server restart / `/reload-plugins`). Configuration: the `writeBudget` field
    (`{"creates": n, "total": m}`) or the env vars `JIRA_WRITE_BUDGET_CREATES` /
    `JIRA_WRITE_BUDGET_TOTAL`. Purpose: a hard stop for an uncontrolled creation loop.

@@ -14,6 +14,8 @@ import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
+import { DEFAULT_WRITE_BUDGET } from './write-guard.mjs'
+
 /**
  * Default status list used when a project has no saved profile.
  * A template, not a guarantee — profiles override it per project.
@@ -91,8 +93,8 @@ export function loadConfig({ env = process.env, path = configPath() } = {}) {
     projects: typeof file.projects === 'object' && file.projects !== null ? file.projects : {},
     // Loop protection only — writes are available by default (no write-mode).
     writeBudget: {
-      creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
-      total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30,
+      creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? DEFAULT_WRITE_BUDGET.creates,
+      total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? DEFAULT_WRITE_BUDGET.total,
     },
   }
 }

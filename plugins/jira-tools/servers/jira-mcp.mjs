@@ -21104,65 +21104,6 @@ var EMPTY_COMPLETION_RESULT = {
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-var DEFAULT_STATUSES = [
-  "To Do",
-  "To Fix",
-  "In Progress",
-  "Code Review",
-  "Dev Done",
-  "On Hold",
-  "Ready for QA",
-  "QA",
-  "Done"
-];
-function configPath() {
-  return join(homedir(), ".config", "jira-tools", "config.json");
-}
-function trimTrailingSlashes(url) {
-  let end = url.length;
-  while (end > 0 && url[end - 1] === "/") end--;
-  return url.slice(0, end);
-}
-function readConfigFile(path) {
-  try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch {
-    return {};
-  }
-}
-function loadConfig({ env = process.env, path = configPath() } = {}) {
-  const file = readConfigFile(path);
-  const fromEnv = (value) => {
-    const v = String(value ?? "");
-    return v && !v.includes("${") ? v : void 0;
-  };
-  const server = fromEnv(env.JIRA_SERVER) || file.server;
-  const token = fromEnv(env.JIRA_TOKEN) || file.token;
-  if (!server || !token) return null;
-  return {
-    server: trimTrailingSlashes(String(server)),
-    token: String(token),
-    defaultProject: fromEnv(env.JIRA_DEFAULT_PROJECT) || file.defaultProject || void 0,
-    language: fromEnv(env.JIRA_LANG) || file.language || "pl",
-    projects: typeof file.projects === "object" && file.projects !== null ? file.projects : {},
-    // Loop protection only — writes are available by default (no write-mode).
-    writeBudget: {
-      creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? 10,
-      total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? 30
-    }
-  };
-}
-function positiveInt(value) {
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : void 0;
-}
-function getProjectProfile(config2, projectKey) {
-  const profile = config2?.projects?.[String(projectKey).toUpperCase()] ?? {};
-  return {
-    statuses: Array.isArray(profile.statuses) && profile.statuses.length > 0 ? profile.statuses : DEFAULT_STATUSES,
-    ...profile
-  };
-}
 
 // plugins/jira-tools/src/jira-client.mjs
 var jira_client_exports = {};
@@ -21247,7 +21188,7 @@ function expandKeys(inputs) {
 function mapHttpError(status, bodyText, what) {
   if (status === 401) {
     return new JiraError(
-      "The PAT token expired or is invalid (401). Generate a new one: Jira \u2192 profile avatar \u2192 Personal Access Tokens \u2192 Create token, then run /jira-tools:jira-setup.",
+      "The PAT token expired or is invalid (401). Ask the user for a fresh Personal Access Token (Jira \u2192 avatar \u2192 Personal Access Tokens \u2192 Create token), then save it: in Claude Code run /jira-tools:jira-setup --update to write it to ~/.config/jira-tools/config.json; in Claude Desktop the config file cannot be written from here \u2014 tell the user to paste the new token into the jira-tools plugin settings (token field).",
       { status }
     );
   }
@@ -21436,18 +21377,14 @@ function addIssuesToEpic(config2, epicKey, issueKeys) {
   });
 }
 
-// plugins/jira-tools/src/tools/add-attachment.mjs
-import { readFileSync as readFileSync2, statSync } from "node:fs";
-import { basename } from "node:path";
-
 // plugins/jira-tools/src/write-guard.mjs
-var DEFAULT_WRITE_BUDGET = { creates: 10, total: 30 };
+var DEFAULT_WRITE_BUDGET = { creates: 100, total: 300 };
 var counters = { creates: 0, total: 0 };
 function consumeWriteBudget(config2, kind) {
   const budget = { ...DEFAULT_WRITE_BUDGET, ...config2?.writeBudget };
   const refuse = (used, limit, what) => {
     throw new JiraError(
-      `Session write limit reached (${used}/${limit} \u2014 ${what}). This protects against an uncontrolled creation loop. If you are doing this on purpose, restart the server (/reload-plugins in Claude Code) and continue, or raise the limit (config "writeBudget" or env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL).`
+      `Session write limit reached (${used}/${limit} \u2014 ${what}). This is a loop guard, not a hard cap. Raise it in ~/.config/jira-tools/config.json with "writeBudget": { "creates": 200, "total": 500 } (both are plain integers), or set env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL to integers. Then restart the server (/reload-plugins in Claude Code).`
     );
   };
   if (counters.total >= budget.total) refuse(counters.total, budget.total, "all writes");
@@ -21478,7 +21415,70 @@ async function findDuplicate(config2, client, project, summary) {
   }
 }
 
+// plugins/jira-tools/src/config.mjs
+var DEFAULT_STATUSES = [
+  "To Do",
+  "To Fix",
+  "In Progress",
+  "Code Review",
+  "Dev Done",
+  "On Hold",
+  "Ready for QA",
+  "QA",
+  "Done"
+];
+function configPath() {
+  return join(homedir(), ".config", "jira-tools", "config.json");
+}
+function trimTrailingSlashes(url) {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end--;
+  return url.slice(0, end);
+}
+function readConfigFile(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return {};
+  }
+}
+function loadConfig({ env = process.env, path = configPath() } = {}) {
+  const file = readConfigFile(path);
+  const fromEnv = (value) => {
+    const v = String(value ?? "");
+    return v && !v.includes("${") ? v : void 0;
+  };
+  const server = fromEnv(env.JIRA_SERVER) || file.server;
+  const token = fromEnv(env.JIRA_TOKEN) || file.token;
+  if (!server || !token) return null;
+  return {
+    server: trimTrailingSlashes(String(server)),
+    token: String(token),
+    defaultProject: fromEnv(env.JIRA_DEFAULT_PROJECT) || file.defaultProject || void 0,
+    language: fromEnv(env.JIRA_LANG) || file.language || "pl",
+    projects: typeof file.projects === "object" && file.projects !== null ? file.projects : {},
+    // Loop protection only — writes are available by default (no write-mode).
+    writeBudget: {
+      creates: positiveInt(env.JIRA_WRITE_BUDGET_CREATES) ?? positiveInt(file.writeBudget?.creates) ?? DEFAULT_WRITE_BUDGET.creates,
+      total: positiveInt(env.JIRA_WRITE_BUDGET_TOTAL) ?? positiveInt(file.writeBudget?.total) ?? DEFAULT_WRITE_BUDGET.total
+    }
+  };
+}
+function positiveInt(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : void 0;
+}
+function getProjectProfile(config2, projectKey) {
+  const profile = config2?.projects?.[String(projectKey).toUpperCase()] ?? {};
+  return {
+    statuses: Array.isArray(profile.statuses) && profile.statuses.length > 0 ? profile.statuses : DEFAULT_STATUSES,
+    ...profile
+  };
+}
+
 // plugins/jira-tools/src/tools/add-attachment.mjs
+import { readFileSync as readFileSync2, statSync } from "node:fs";
+import { basename } from "node:path";
 var MAX_BYTES = 10 * 1024 * 1024;
 var add_attachment_default = {
   name: "add_attachment",
@@ -22228,7 +22228,7 @@ var get_project_config_default = {
 };
 
 // plugins/jira-tools/src/version.mjs
-var VERSION = "0.5.1";
+var VERSION = "0.5.2";
 
 // plugins/jira-tools/src/tools/get-version.mjs
 var get_version_default = {

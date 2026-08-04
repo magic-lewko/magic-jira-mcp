@@ -77,8 +77,11 @@ export function expandKeys(inputs) {
 function mapHttpError(status, bodyText, what) {
   if (status === 401) {
     return new JiraError(
-      'The PAT token expired or is invalid (401). Generate a new one: Jira → profile avatar → '
-      + 'Personal Access Tokens → Create token, then run /jira-tools:jira-setup.',
+      'The PAT token expired or is invalid (401). Ask the user for a fresh Personal Access Token '
+      + '(Jira → avatar → Personal Access Tokens → Create token), then save it: in Claude Code run '
+      + '/jira-tools:jira-setup --update to write it to ~/.config/jira-tools/config.json; in Claude '
+      + 'Desktop the config file cannot be written from here — tell the user to paste the new token '
+      + 'into the jira-tools plugin settings (token field).',
       { status },
     )
   }

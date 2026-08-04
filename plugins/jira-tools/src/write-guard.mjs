@@ -18,8 +18,12 @@
 
 import { debug, JiraError } from './jira-client.mjs'
 
-/** Defaults when config carries no writeBudget. */
-export const DEFAULT_WRITE_BUDGET = { creates: 10, total: 30 }
+/**
+ * Defaults when config carries no writeBudget. High enough that normal batch
+ * work (dozens of tickets) runs without hitting it — this is a runaway-loop
+ * guard, not a usage cap. Raise per config/env when you genuinely need more.
+ */
+export const DEFAULT_WRITE_BUDGET = { creates: 100, total: 300 }
 
 const counters = { creates: 0, total: 0 }
 
@@ -42,9 +46,10 @@ export function consumeWriteBudget(config, kind) {
   const refuse = (used, limit, what) => {
     throw new JiraError(
       `Session write limit reached (${used}/${limit} — ${what}). `
-      + 'This protects against an uncontrolled creation loop. If you are doing this on purpose, '
-      + 'restart the server (/reload-plugins in Claude Code) and continue, or raise the limit '
-      + '(config "writeBudget" or env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL).',
+      + 'This is a loop guard, not a hard cap. Raise it in ~/.config/jira-tools/config.json with '
+      + '"writeBudget": { "creates": 200, "total": 500 } (both are plain integers), or set env '
+      + 'JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL to integers. Then restart the server '
+      + '(/reload-plugins in Claude Code).',
     )
   }
 

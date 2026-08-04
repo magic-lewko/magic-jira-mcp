@@ -54,7 +54,7 @@ Write: create tickets per platform, edit fields, comment, attach files, change s
 
 ## Guardrails
 
-- Session budget stops a runaway create loop.
+- Session budget stops a runaway create loop (default 100 creates, 300 writes; raise with `writeBudget` in the config).
 - Duplicate guard blocks a repeat ticket.
 - One ticket per call.
 - `/jira-tools:create-task` previews before it creates.
