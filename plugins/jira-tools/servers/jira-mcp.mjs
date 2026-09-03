@@ -2231,8 +2231,8 @@ var require_resolve = __commonJS({
       }
       return count;
     }
-    function getFullPath(resolver, id = "", normalize) {
-      if (normalize !== false)
+    function getFullPath(resolver, id = "", normalize2) {
+      if (normalize2 !== false)
         id = normalizeId(id);
       const p = resolver.parse(id);
       return _getFullPath(resolver, p);
@@ -3628,7 +3628,7 @@ var require_fast_uri = __commonJS({
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
-    function normalize(uri, options) {
+    function normalize2(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
         normalizeString(uri, options);
@@ -3895,7 +3895,7 @@ var require_fast_uri = __commonJS({
     }
     var fastUri = {
       SCHEMES,
-      normalize,
+      normalize: normalize2,
       resolve,
       resolveComponent,
       equal,
@@ -21115,6 +21115,7 @@ __export(jira_client_exports, {
   addComment: () => addComment,
   addIssuesToEpic: () => addIssuesToEpic,
   createIssue: () => createIssue,
+  createIssuesBulk: () => createIssuesBulk,
   debug: () => debug,
   doTransition: () => doTransition,
   expandKeys: () => expandKeys,
@@ -21323,6 +21324,13 @@ function createIssue(config2, fields) {
     what: "create issue"
   });
 }
+function createIssuesBulk(config2, fieldsList) {
+  return jiraFetch(config2, "/rest/api/2/issue/bulk", {
+    method: "POST",
+    body: { issueUpdates: fieldsList.map((fields) => ({ fields })) },
+    what: "create issues (bulk)"
+  });
+}
 function updateIssue(config2, key, fields) {
   return jiraFetch(config2, `/rest/api/2/issue/${encodeURIComponent(key)}`, {
     method: "PUT",
@@ -21380,19 +21388,33 @@ function addIssuesToEpic(config2, epicKey, issueKeys) {
 // plugins/jira-tools/src/write-guard.mjs
 var DEFAULT_WRITE_BUDGET = { creates: 100, total: 300 };
 var counters = { creates: 0, total: 0 };
-function consumeWriteBudget(config2, kind) {
-  const budget = { ...DEFAULT_WRITE_BUDGET, ...config2?.writeBudget };
-  const refuse = (used, limit, what) => {
-    throw new JiraError(
-      `Session write limit reached (${used}/${limit} \u2014 ${what}). This is a loop guard, not a hard cap. Raise it in ~/.config/jira-tools/config.json with "writeBudget": { "creates": 200, "total": 500 } (both are plain integers), or set env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL to integers. Then restart the server (/reload-plugins in Claude Code).`
-    );
-  };
-  if (counters.total >= budget.total) refuse(counters.total, budget.total, "all writes");
-  if (kind === "create" && counters.creates >= budget.creates) {
-    refuse(counters.creates, budget.creates, "issue creation");
+function effectiveBudget(config2) {
+  return { ...DEFAULT_WRITE_BUDGET, ...config2?.writeBudget };
+}
+function refuse(used, limit, what, count) {
+  const head = count > 1 ? `Session write limit would be exceeded (${used}/${limit} used, ${count} more requested \u2014 ${what}). ` : `Session write limit reached (${used}/${limit} \u2014 ${what}). `;
+  throw new JiraError(
+    head + 'This is a loop guard, not a hard cap. Raise it in ~/.config/jira-tools/config.json with "writeBudget": { "creates": 200, "total": 500 } (both are plain integers), or set env JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL to integers. Then restart the server (/reload-plugins in Claude Code).'
+  );
+}
+function assertWriteBudget(config2, kind, count = 1) {
+  const budget = effectiveBudget(config2);
+  if (counters.total + count > budget.total) refuse(counters.total, budget.total, "all writes", count);
+  if (kind === "create" && counters.creates + count > budget.creates) {
+    refuse(counters.creates, budget.creates, "issue creation", count);
   }
+}
+function consumeWriteBudget(config2, kind) {
+  assertWriteBudget(config2, kind, 1);
   counters.total += 1;
   if (kind === "create") counters.creates += 1;
+}
+function writeBudgetStatus(config2) {
+  const budget = effectiveBudget(config2);
+  return {
+    creates: { used: counters.creates, limit: budget.creates },
+    total: { used: counters.total, limit: budget.total }
+  };
 }
 function normalizeSummary(summary) {
   return String(summary ?? "").toLowerCase().replaceAll(/\s+/g, " ").trim();
@@ -21400,12 +21422,13 @@ function normalizeSummary(summary) {
 function jqlTextOperand(summary) {
   return String(summary).replaceAll(/[+\-&|!(){}[\]^"~*?:\\/]/g, " ").replaceAll(/\s+/g, " ").trim();
 }
-async function findDuplicate(config2, client, project, summary) {
+async function findDuplicate(config2, client, project, summary, { parent } = {}) {
   const wanted = normalizeSummary(summary);
   if (!wanted) return null;
   const operand = jqlTextOperand(summary);
   if (!operand) return null;
-  const jql = `project = ${project} AND summary ~ "${operand}" AND statusCategory != Done`;
+  const scope = parent ? ` AND parent = ${String(parent).toUpperCase()}` : "";
+  const jql = `project = ${project} AND summary ~ "${operand}"${scope} AND statusCategory != Done`;
   try {
     const page = await client.searchIssues(config2, { jql, maxResults: 20 });
     return page.issues.find((issue2) => normalizeSummary(issue2.fields?.summary) === wanted) ?? null;
@@ -21577,35 +21600,227 @@ var assign_to_epic_default = {
   }
 };
 
-// plugins/jira-tools/src/tools/create-issue.mjs
+// plugins/jira-tools/src/wiki-markup.mjs
+var SENTINEL = "";
+function markdownToWiki(md) {
+  if (!md) return md;
+  const text = String(md).replaceAll("\r\n", "\n");
+  const blocks = [];
+  const withoutBlocks = text.replace(/```([\w+#.-]*)[ \t]*\n([\s\S]*?)```/g, (_, lang, code) => {
+    const tag = lang ? `{code:${lang}}` : "{code}";
+    blocks.push(`${tag}
+${code.replace(/\n$/, "")}
+{code}`);
+    return `${SENTINEL}K${blocks.length - 1}${SENTINEL}`;
+  });
+  const lines = withoutBlocks.split("\n");
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isTableRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      out.push(`||${splitRow(line).map(inline).join("||")}||`);
+      i += 2;
+      while (i < lines.length && isTableRow(lines[i])) {
+        out.push(`|${splitRow(lines[i]).map(inline).join("|")}|`);
+        i += 1;
+      }
+      continue;
+    }
+    out.push(convertLine(line));
+    i += 1;
+  }
+  return out.join("\n").replace(new RegExp(`${SENTINEL}K(\\d+)${SENTINEL}`, "g"), (_, n) => blocks[Number(n)]);
+}
+function isTableRow(line) {
+  return /^\s*\|.*\|\s*$/.test(line);
+}
+function isTableSeparator(line) {
+  return /^\s*\|(\s*:?-+:?\s*\|)+\s*$/.test(line);
+}
+function splitRow(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+}
+function convertLine(line) {
+  if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) return "----";
+  const heading = line.match(/^(#{1,6})\s+(.*)$/);
+  if (heading) return `h${heading[1].length}. ${inline(heading[2])}`;
+  const quote = line.match(/^>\s?(.*)$/);
+  if (quote) return `bq. ${inline(quote[1])}`;
+  const checkbox = line.match(/^(\s*)[-*+]\s+\[([ xX])\]\s+(.*)$/);
+  if (checkbox) {
+    const depth = Math.floor(checkbox[1].length / 2) + 1;
+    const icon = checkbox[2] === " " ? "(x)" : "(/)";
+    return `${"*".repeat(depth)} ${icon} ${inline(checkbox[3])}`;
+  }
+  const bullet = line.match(/^(\s*)[-*+]\s+(.*)$/);
+  if (bullet) {
+    const depth = Math.floor(bullet[1].length / 2) + 1;
+    return `${"*".repeat(depth)} ${inline(bullet[2])}`;
+  }
+  const numbered = line.match(/^(\s*)\d+[.)]\s+(.*)$/);
+  if (numbered) {
+    const depth = Math.floor(numbered[1].length / 2) + 1;
+    return `${"#".repeat(depth)} ${inline(numbered[2])}`;
+  }
+  return inline(line);
+}
+function inline(s) {
+  const codes = [];
+  let t = s.replace(/`([^`]+)`/g, (_, code) => {
+    codes.push(`{{${code}}}`);
+    return `${SENTINEL}C${codes.length - 1}${SENTINEL}`;
+  });
+  t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, "[$1|$2]");
+  t = t.replace(/\*\*(.+?)\*\*/g, `${SENTINEL}B$1${SENTINEL}B`);
+  t = t.replace(/__(.+?)__/g, `${SENTINEL}B$1${SENTINEL}B`);
+  t = t.replace(/(^|[^*\w])\*([^*\s][^*]*?)\*(?=[^*\w]|$)/g, "$1_$2_");
+  t = t.replace(/~~(.+?)~~/g, "-$1-");
+  t = t.replace(new RegExp(`${SENTINEL}B(.+?)${SENTINEL}B`, "g"), "*$1*");
+  return t.replace(new RegExp(`${SENTINEL}C(\\d+)${SENTINEL}`, "g"), (_, n) => codes[Number(n)]);
+}
+
+// plugins/jira-tools/src/issue-fields.mjs
+var EPIC_LINK_FIELD = { profileKey: "epicLinkField", fieldName: "Epic Link", customSuffix: ":gh-epic-link" };
+var SPRINT_FIELD = { profileKey: "sprintField", fieldName: "Sprint", customSuffix: ":gh-sprint" };
+var EPIC_NAME_FIELD = { profileKey: "epicNameField", fieldName: "Epic Name", customSuffix: ":gh-epic-label" };
+var STORY_POINTS_FIELD = { profileKey: "storyPointsField", fieldName: "Story Points", customSuffix: null };
 async function resolveField(config2, client, project, { profileKey, fieldName, customSuffix }) {
   const fromProfile = getProjectProfile(config2, project)[profileKey];
   if (fromProfile) return fromProfile;
   const fields = await client.listFields(config2);
-  const field = fields.find((f) => f.name === fieldName) ?? fields.find((f) => f.schema?.custom?.endsWith(customSuffix));
+  const field = fields.find((f) => f.name === fieldName) ?? (customSuffix ? fields.find((f) => f.schema?.custom?.endsWith(customSuffix)) : void 0);
   if (!field) {
     throw new JiraError(`Field not found: ${fieldName} \u2014 run /jira-tools:jira-config for the project, or omit this parameter.`);
   }
   return field.id;
 }
-var EPIC_FIELD = { profileKey: "epicLinkField", fieldName: "Epic Link", customSuffix: ":gh-epic-link" };
-var SPRINT_FIELD = { profileKey: "sprintField", fieldName: "Sprint", customSuffix: ":gh-sprint" };
+var ISSUE_ROLES = ["epic", "story", "task", "subtask", "bug"];
+var ROLE_PATTERNS = {
+  epic: /^epi/i,
+  story: /stor/i,
+  task: /^task/i,
+  bug: /bug/i
+};
+async function loadProjectTypes(config2, client, project) {
+  try {
+    const proj = await client.getProject(config2, project);
+    return (proj?.issueTypes ?? []).map((t) => ({ name: String(t.name), subtask: Boolean(t.subtask) }));
+  } catch (err) {
+    debug("project issue types unavailable, passing the type name through:", err?.message);
+    return [];
+  }
+}
+function resolveIssueType(config2, project, projectTypes, requested) {
+  const lower = String(requested).trim().toLowerCase();
+  const byName = projectTypes.find((t) => t.name.toLowerCase() === lower);
+  if (byName) return byName;
+  if (!ISSUE_ROLES.includes(lower)) return null;
+  const mapped = getProjectProfile(config2, project).issueTypeRoles?.[lower];
+  if (mapped) {
+    const byMap = projectTypes.find((t) => t.name.toLowerCase() === String(mapped).toLowerCase());
+    if (byMap) return byMap;
+  }
+  if (lower === "subtask") return projectTypes.find((t) => t.subtask) ?? null;
+  return projectTypes.find((t) => !t.subtask && ROLE_PATTERNS[lower].test(t.name)) ?? null;
+}
+function isEpicType(config2, project, typeName, requested) {
+  if (String(requested).trim().toLowerCase() === "epic") return true;
+  const mapped = getProjectProfile(config2, project).issueTypeRoles?.epic;
+  if (mapped && String(mapped).toLowerCase() === String(typeName).toLowerCase()) return true;
+  return ROLE_PATTERNS.epic.test(String(typeName));
+}
+function detectIssueTypeRoles(projectTypes) {
+  const roles = {};
+  const sub = projectTypes.find((t) => t.subtask);
+  if (sub) roles.subtask = sub.name;
+  for (const role of ["epic", "story", "task", "bug"]) {
+    const hit = projectTypes.find((t) => !t.subtask && ROLE_PATTERNS[role].test(t.name));
+    if (hit) roles[role] = hit.name;
+  }
+  return roles;
+}
+var ISSUE_ITEM_INPUT = {
+  issue_type: external_exports.string().describe(
+    `Issue type: a role (${ISSUE_ROLES.join("/")}) resolved to the project's own type name (via the profile's issueTypeRoles, else by name), or the exact type name`
+  ),
+  summary: external_exports.string().min(5).describe("Issue title"),
+  description: external_exports.string().optional().describe(
+    'Description in Markdown \u2014 converted to Jira wiki markup, because Jira Server does not render Markdown. Set description_format="wiki" to pass wiki markup through unchanged'
+  ),
+  description_format: external_exports.enum(["markdown", "wiki"]).optional().describe('Format of description; default "markdown"'),
+  components: external_exports.array(external_exports.string()).optional().describe('Component names, e.g. ["iOS"]'),
+  labels: external_exports.array(external_exports.string()).optional(),
+  assignee: external_exports.string().optional().describe("Jira username to assign"),
+  epic_key: external_exports.string().optional().describe("Epic to link the issue to (Epic Link)"),
+  epic_name: external_exports.string().optional().describe(
+    "Epic Name \u2014 Jira requires it on an epic; defaults to the summary when creating an epic"
+  ),
+  parent: external_exports.string().optional().describe('Parent issue key, required for a sub-task type, e.g. "PROJ-42"'),
+  story_points: external_exports.number().optional().describe("Story Points"),
+  sprint_id: external_exports.number().int().optional().describe("Sprint id to place the issue in (find it via get_active_sprint); omit for backlog"),
+  allow_duplicate: external_exports.boolean().optional().describe("Set true ONLY when the user explicitly confirmed creating a near-duplicate")
+};
+async function buildIssueFields(args, { config: config2, client, project, projectTypes }) {
+  const summary = args.summary.trim();
+  const requestedType = args.issue_type.trim();
+  const resolvedType = resolveIssueType(config2, project, projectTypes, requestedType);
+  const typeName = resolvedType?.name ?? requestedType;
+  let parentKey;
+  if (args.parent) {
+    parentKey = args.parent.trim().toUpperCase();
+    if (resolvedType && !resolvedType.subtask) {
+      const subtaskTypes = projectTypes.filter((t) => t.subtask).map((t) => t.name);
+      throw new JiraError(
+        `"${typeName}" is not a sub-task type, so it cannot have a parent. ` + (subtaskTypes.length ? `Sub-task types in ${project}: ${subtaskTypes.join(", ")}.` : `Project ${project} has no sub-task type.`)
+      );
+    }
+    const parent = await client.getIssue(config2, parentKey, { fields: ["issuetype", "summary"] });
+    if (parent.fields?.issuetype?.subtask) {
+      throw new JiraError(`${parentKey} is itself a sub-task \u2014 a sub-task cannot be the parent of another sub-task.`);
+    }
+  } else if (resolvedType?.subtask) {
+    throw new JiraError(`"${typeName}" is a sub-task type and requires a parent \u2014 pass parent="${project}-123".`);
+  }
+  const fields = {
+    project: { key: project },
+    issuetype: { name: typeName },
+    summary
+  };
+  if (parentKey) fields.parent = { key: parentKey };
+  if (args.description) {
+    fields.description = args.description_format === "wiki" ? args.description : markdownToWiki(args.description);
+  }
+  if (args.components?.length) fields.components = args.components.map((name) => ({ name }));
+  const labels = [...args.labels ?? []];
+  if (!labels.includes("ai-generated")) labels.push("ai-generated");
+  fields.labels = labels;
+  if (args.assignee) fields.assignee = { name: args.assignee };
+  if (args.epic_key) {
+    fields[await resolveField(config2, client, project, EPIC_LINK_FIELD)] = args.epic_key.trim().toUpperCase();
+  }
+  if (args.sprint_id !== void 0) {
+    fields[await resolveField(config2, client, project, SPRINT_FIELD)] = args.sprint_id;
+  }
+  const epicName = args.epic_name?.trim() || (isEpicType(config2, project, typeName, requestedType) ? summary : void 0);
+  if (epicName) {
+    fields[await resolveField(config2, client, project, EPIC_NAME_FIELD)] = epicName;
+  }
+  if (args.story_points !== void 0) {
+    fields[await resolveField(config2, client, project, STORY_POINTS_FIELD)] = args.story_points;
+  }
+  return { fields, summary, typeName, parentKey };
+}
+
+// plugins/jira-tools/src/tools/create-issue.mjs
 var create_issue_default = {
   name: "create_issue",
   config: {
     title: "Create issue (WRITE)",
-    description: "Create exactly ONE Jira issue and return its key + URL. NEVER call this in a loop \u2014 for a batch of tickets use the /jira-tools:create-task skill (mandatory dry-run + user confirmation). Server-side rails: refuses when an open issue with the same summary exists (unless allow_duplicate=true) and enforces a per-session write budget.",
+    description: "Create exactly ONE Jira issue and return its key + URL. Supports epics (epic_name, defaults to the summary), sub-tasks (parent) and role-based issue types (epic/story/task/subtask/bug resolved to the project's own type names). Descriptions are Markdown, converted to Jira wiki markup. For a whole breakdown use create_issues (up to 50 in one call) \u2014 but ALWAYS after the /jira-tools:create-task dry-run and the user's confirmation. Server-side rails: refuses when an open issue with the same summary exists (same parent for sub-tasks) unless allow_duplicate=true, and enforces a per-session write budget.",
     inputSchema: {
       project: external_exports.string().describe('Project key, e.g. "PROJ"'),
-      issue_type: external_exports.string().describe('Issue type name, e.g. "Task", "Bug", "Story"'),
-      summary: external_exports.string().min(5).describe("Issue title"),
-      description: external_exports.string().optional().describe("Issue description (Jira wiki markup or plain text)"),
-      components: external_exports.array(external_exports.string()).optional().describe('Component names, e.g. ["iOS"]'),
-      labels: external_exports.array(external_exports.string()).optional(),
-      assignee: external_exports.string().optional().describe("Jira username to assign"),
-      epic_key: external_exports.string().optional().describe("Epic to link the issue to"),
-      sprint_id: external_exports.number().int().optional().describe("Sprint id to place the issue in (find it via get_active_sprint); omit for backlog"),
-      allow_duplicate: external_exports.boolean().optional().describe("Set true ONLY when the user explicitly confirmed creating a near-duplicate")
+      ...ISSUE_ITEM_INPUT
     }
   },
   /**
@@ -21616,36 +21831,100 @@ var create_issue_default = {
   async run(args, { config: config2, client }) {
     const project = args.project.trim().toUpperCase();
     const summary = args.summary.trim();
+    const parentKey = args.parent?.trim().toUpperCase();
     if (!args.allow_duplicate) {
-      const duplicate = await findDuplicate(config2, client, project, summary);
+      const duplicate = await findDuplicate(config2, client, project, summary, { parent: parentKey });
       if (duplicate) {
+        const where = parentKey ? `${parentKey} already has` : `project ${project} already has`;
         throw new JiraError(
-          `Not created \u2014 project ${project} already has an open issue with this title: ${duplicate.key} (\u201E${duplicate.fields?.summary}", status: ${duplicate.fields?.status?.name ?? "?"}). If the duplicate is intended and the user confirmed it, call again with allow_duplicate=true.`
+          `Not created \u2014 ${where} an open issue with this title: ${duplicate.key} (\u201E${duplicate.fields?.summary}", status: ${duplicate.fields?.status?.name ?? "?"}). If the duplicate is intended and the user confirmed it, call again with allow_duplicate=true.`
         );
       }
     }
-    const fields = {
-      project: { key: project },
-      issuetype: { name: args.issue_type.trim() },
-      summary
-    };
-    if (args.description) fields.description = args.description;
-    if (args.components?.length) fields.components = args.components.map((name) => ({ name }));
-    const labels = [...args.labels ?? []];
-    if (!labels.includes("ai-generated")) labels.push("ai-generated");
-    fields.labels = labels;
-    if (args.assignee) fields.assignee = { name: args.assignee };
-    if (args.epic_key) {
-      const epicField = await resolveField(config2, client, project, EPIC_FIELD);
-      fields[epicField] = args.epic_key.trim().toUpperCase();
-    }
-    if (args.sprint_id !== void 0) {
-      const sprintField = await resolveField(config2, client, project, SPRINT_FIELD);
-      fields[sprintField] = args.sprint_id;
-    }
+    const projectTypes = await loadProjectTypes(config2, client, project);
+    const { fields } = await buildIssueFields(args, { config: config2, client, project, projectTypes });
     consumeWriteBudget(config2, "create");
     const created = await client.createIssue(config2, fields);
     return `Created ${created.key} \u2014 ${config2.server}/browse/${created.key}`;
+  }
+};
+
+// plugins/jira-tools/src/tools/create-issues.mjs
+var MAX_ITEMS = 50;
+function normalize(s) {
+  return String(s ?? "").toLowerCase().replaceAll(/\s+/g, " ").trim();
+}
+function describeError(error2) {
+  const parts = [
+    ...error2.elementErrors?.errorMessages ?? [],
+    ...Object.entries(error2.elementErrors?.errors ?? {}).map(([field, message]) => `${field}: ${message}`)
+  ];
+  return parts.join("; ") || `HTTP ${error2.status ?? "?"}`;
+}
+var create_issues_default = {
+  name: "create_issues",
+  config: {
+    title: "Create issues in bulk (WRITE)",
+    description: `Create up to ${MAX_ITEMS} issues in ONE call (POST /rest/api/2/issue/bulk) \u2014 the sanctioned way to create a whole breakdown. Call it ONLY after the /jira-tools:create-task dry-run and the user's explicit confirmation. Jira assigns keys on creation, so a parent or epic created in this call cannot be referenced by the same call: create the epic and the stories first, then the sub-tasks in a second call with parent set. Each item follows the create_issue rules (roles, epic_name, parent validation, Markdown \u2192 wiki, ai-generated label). The whole batch must fit the session write budget or nothing is created; each item passes the duplicate guard. Returns the created keys and per-item errors.`,
+    inputSchema: {
+      project: external_exports.string().describe('Project key, e.g. "PROJ"'),
+      items: external_exports.array(external_exports.object(ISSUE_ITEM_INPUT)).min(1).max(MAX_ITEMS).describe(`Issues to create, in order (max ${MAX_ITEMS})`)
+    }
+  },
+  /**
+   * @param {{project: string, items: object[]}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run(args, { config: config2, client }) {
+    const project = args.project.trim().toUpperCase();
+    const { items } = args;
+    assertWriteBudget(config2, "create", items.length);
+    const projectTypes = await loadProjectTypes(config2, client, project);
+    const seen = /* @__PURE__ */ new Set();
+    const payload = [];
+    for (const [index, item] of items.entries()) {
+      const summary = item.summary.trim();
+      const parentKey = item.parent?.trim().toUpperCase();
+      const fingerprint = `${parentKey ?? ""}|${normalize(summary)}`;
+      if (!item.allow_duplicate) {
+        if (seen.has(fingerprint)) {
+          throw new JiraError(
+            `Nothing created \u2014 item ${index + 1} ("${summary}") repeats an earlier item in this batch${parentKey ? ` under ${parentKey}` : ""}. Set allow_duplicate=true on it if that is intended.`
+          );
+        }
+        const duplicate = await findDuplicate(config2, client, project, summary, { parent: parentKey });
+        if (duplicate) {
+          throw new JiraError(
+            `Nothing created \u2014 item ${index + 1} ("${summary}") duplicates ${duplicate.key} (\u201E${duplicate.fields?.summary}"). Set allow_duplicate=true on it if the user confirmed it.`
+          );
+        }
+      }
+      seen.add(fingerprint);
+      const { fields } = await buildIssueFields(item, { config: config2, client, project, projectTypes });
+      payload.push(fields);
+    }
+    const result = await client.createIssuesBulk(config2, payload);
+    const created = result?.issues ?? [];
+    const failed = new Map((result?.errors ?? []).map((error2) => [error2.failedElementNumber, error2]));
+    for (let n = 0; n < created.length; n += 1) consumeWriteBudget(config2, "create");
+    const lines = [`Created ${created.length}/${items.length} issues in ${project}:`];
+    let next = 0;
+    items.forEach((item, index) => {
+      const summary = item.summary.trim();
+      const error2 = failed.get(index);
+      if (error2) {
+        lines.push(`- item ${index + 1} "${summary}": FAILED \u2014 ${describeError(error2)}`);
+        return;
+      }
+      const issue2 = created[next];
+      next += 1;
+      lines.push(`- ${issue2?.key ?? "?"} "${summary}" \u2014 ${config2.server}/browse/${issue2?.key ?? ""}`);
+    });
+    if (failed.size) {
+      lines.push(`${failed.size} item(s) failed \u2014 fix and create those again; the created ones are NOT rolled back.`);
+    }
+    return lines.join("\n");
   }
 };
 
@@ -21814,15 +22093,35 @@ function formatEpicStatus(epicKey, { issues, total }) {
 }
 
 // plugins/jira-tools/src/tools/search-issues.mjs
+var TOP_LEVEL = /* @__PURE__ */ new Set(["id", "key", "self"]);
+var DATE_FIELDS = /* @__PURE__ */ new Set(["created", "updated", "resolutiondate", "lastViewed"]);
+function timestamp(iso) {
+  const m = String(iso).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  return m ? `${m[1]} ${m[2]}` : String(iso);
+}
+function flatten(name, value) {
+  if (value === void 0) return void 0;
+  if (value === null || value === "") return "-";
+  if (Array.isArray(value)) return value.map((item) => flatten(name, item)).join(", ") || "-";
+  if (typeof value === "object") {
+    const picked = value.name ?? value.displayName ?? value.key ?? value.value;
+    if (picked === void 0) return JSON.stringify(value);
+    return typeof picked === "object" ? JSON.stringify(picked) : String(picked);
+  }
+  return DATE_FIELDS.has(name) ? timestamp(value) : String(value);
+}
+function readField(issue2, name) {
+  return TOP_LEVEL.has(name) ? issue2[name] : issue2.fields?.[name];
+}
 var search_issues_default = {
   name: "search_issues",
   config: {
     title: "Search issues (JQL)",
-    description: "Run any JQL query against Jira and get a compact issue list (key, status, type, priority, title, assignee, labels, updated). Foundation for all natural-language questions \u2014 compose the JQL yourself, e.g. 'project = PROJ AND assignee = currentUser() AND sprint in openSprints() ORDER BY status' or 'project = PROJ AND status changed to Done after -1d'.",
+    description: "Run any JQL query against Jira and get a compact issue list (key, status, type, priority, title, assignee, labels, updated). Foundation for all natural-language questions \u2014 compose the JQL yourself, e.g. 'project = PROJ AND assignee = currentUser() AND sprint in openSprints() ORDER BY status' or 'project = PROJ AND status changed to Done after -1d'. Pass `fields` for an \"Extra fields\" block (CSV-style exports): the numeric issue `id`, `key`/`self`, `created`/`updated` with time of day, `reporter`/`assignee` as usernames, `resolution`/`status`/`priority` as names \u2014 objects are flattened, never raw JSON.",
     inputSchema: {
       jql: external_exports.string().min(1).describe("JQL query (Jira Server syntax)"),
       max_results: external_exports.number().int().min(1).max(100).optional().describe("Maximum issues to return (default 30, max 100)"),
-      fields: external_exports.array(external_exports.string()).optional().describe('Extra Jira field ids to fetch beyond the compact default set (e.g. "duedate", "customfield_10008")'),
+      fields: external_exports.array(external_exports.string()).optional().describe('Field ids to add as an "Extra fields" block, e.g. ["id", "created", "reporter", "resolution", "customfield_10008"]. Top-level id/key/self work too; created/updated come back with time of day'),
       start_at: external_exports.number().int().min(0).optional().describe("Pagination offset (default 0)")
     }
   },
@@ -21832,23 +22131,33 @@ var search_issues_default = {
    * @returns {Promise<string>}
    */
   async run({ jql, max_results, fields, start_at }, { config: config2, client }) {
-    const extras = (fields ?? []).filter((f) => !LIST_FIELDS.includes(f));
+    const requested = [...new Set((fields ?? []).map((f) => f.trim()).filter(Boolean))];
+    const jiraFields = requested.filter((f) => !TOP_LEVEL.has(f));
     const page = await client.searchIssues(config2, {
       jql,
       maxResults: max_results ?? 30,
       startAt: start_at ?? 0,
-      ...extras.length ? { fields: [...LIST_FIELDS, ...extras] } : {}
+      ...jiraFields.length ? { fields: [.../* @__PURE__ */ new Set([...LIST_FIELDS, ...jiraFields])] } : {}
     });
     let text = formatIssueList(page);
-    if (extras.length && page.issues.length) {
+    if (requested.length && page.issues.length) {
+      const missing = new Set(requested);
       const lines = page.issues.map((issue2) => {
-        const values = extras.map((f) => `${f}: ${JSON.stringify(issue2.fields?.[f] ?? null)}`);
+        const values = requested.map((name) => {
+          const flat = flatten(name, readField(issue2, name));
+          if (flat !== void 0) missing.delete(name);
+          return `${name}: ${flat ?? "?"}`;
+        });
         return `${issue2.key} \xB7 ${values.join(" \xB7 ")}`;
       });
       text += `
 
 Extra fields:
 ${lines.join("\n")}`;
+      if (missing.size) {
+        text += `
+(not returned by Jira: ${[...missing].join(", ")} \u2014 check the field id)`;
+      }
     }
     return text;
   }
@@ -21893,15 +22202,21 @@ var update_issue_default = {
   name: "update_issue",
   config: {
     title: "Update issue fields (WRITE)",
-    description: "Change fields of ONE existing issue: assignee, labels, components, priority, description. Show the user exactly what will change and get confirmation BEFORE calling. Note: `labels` and `components` REPLACE the current lists \u2014 to add a label without losing the others use `add_labels`. To change status use transition_issue, to link an epic use assign_to_epic. Counts against the per-session write budget.",
+    description: "Change fields of ONE existing issue: summary, assignee, labels, components, priority, description (Markdown \u2192 wiki markup), story_points, sprint_id, epic_key (Epic Link), epic_name. Show the user exactly what will change and get confirmation BEFORE calling. `labels` and `components` REPLACE the current lists \u2014 to add a label without losing the others use `add_labels`. To change status use transition_issue. Counts against the per-session write budget.",
     inputSchema: {
       key: external_exports.string().describe('Issue key, e.g. "PROJ-42"'),
+      summary: external_exports.string().min(5).optional().describe("New title"),
       assignee: external_exports.string().optional().describe('Jira username to assign, or "unassigned" to clear the assignee'),
       labels: external_exports.array(external_exports.string()).optional().describe("REPLACES all labels"),
       add_labels: external_exports.array(external_exports.string()).optional().describe("Appends labels, keeping the existing ones"),
       components: external_exports.array(external_exports.string()).optional().describe("REPLACES all components (names)"),
       priority: external_exports.string().optional().describe('Priority name, e.g. "High"'),
-      description: external_exports.string().optional().describe("REPLACES the description")
+      description: external_exports.string().optional().describe("REPLACES the description (Markdown, converted to Jira wiki markup)"),
+      description_format: external_exports.enum(["markdown", "wiki"]).optional().describe('Format of description; default "markdown"'),
+      story_points: external_exports.number().optional().describe("Story Points"),
+      sprint_id: external_exports.number().int().optional().describe("Sprint id to move the issue into"),
+      epic_key: external_exports.string().optional().describe("Epic to link the issue to (Epic Link)"),
+      epic_name: external_exports.string().optional().describe("Epic Name (epics only)")
     }
   },
   /**
@@ -21911,8 +22226,13 @@ var update_issue_default = {
    */
   async run(args, { config: config2, client }) {
     const issueKey = args.key.trim().toUpperCase();
+    const project = issueKey.split("-")[0];
     const fields = {};
     const changed = [];
+    if (args.summary !== void 0) {
+      fields.summary = args.summary.trim();
+      changed.push(`summary \u2192 ${fields.summary}`);
+    }
     if (args.assignee !== void 0) {
       const name = args.assignee.trim();
       const clearing = name === "" || name.toLowerCase() === "unassigned";
@@ -21925,8 +22245,7 @@ var update_issue_default = {
     }
     if (args.add_labels?.length) {
       const current = await client.getIssue(config2, issueKey, { fields: ["labels"] });
-      const merged = [.../* @__PURE__ */ new Set([...current.fields?.labels ?? [], ...fields.labels ?? [], ...args.add_labels])];
-      fields.labels = merged;
+      fields.labels = [.../* @__PURE__ */ new Set([...current.fields?.labels ?? [], ...fields.labels ?? [], ...args.add_labels])];
       changed.push(`labels += ${args.add_labels.join(", ")}`);
     }
     if (args.components) {
@@ -21938,12 +22257,30 @@ var update_issue_default = {
       changed.push(`priority \u2192 ${args.priority}`);
     }
     if (args.description !== void 0) {
-      fields.description = args.description;
+      fields.description = args.description_format === "wiki" ? args.description : markdownToWiki(args.description);
       changed.push("description (replaced)");
+    }
+    if (args.story_points !== void 0) {
+      fields[await resolveField(config2, client, project, STORY_POINTS_FIELD)] = args.story_points;
+      changed.push(`story points \u2192 ${args.story_points}`);
+    }
+    if (args.sprint_id !== void 0) {
+      fields[await resolveField(config2, client, project, SPRINT_FIELD)] = args.sprint_id;
+      changed.push(`sprint \u2192 ${args.sprint_id}`);
+    }
+    if (args.epic_key) {
+      const epicKey = args.epic_key.trim().toUpperCase();
+      fields[await resolveField(config2, client, project, EPIC_LINK_FIELD)] = epicKey;
+      changed.push(`epic \u2192 ${epicKey}`);
+    }
+    if (args.epic_name !== void 0) {
+      const epicName = args.epic_name.trim();
+      fields[await resolveField(config2, client, project, EPIC_NAME_FIELD)] = epicName;
+      changed.push(`epic name \u2192 ${epicName}`);
     }
     if (Object.keys(fields).length === 0) {
       throw new JiraError(
-        "No field to change was provided. Available: assignee, labels, add_labels, components, priority, description."
+        "No field to change was provided. Available: summary, assignee, labels, add_labels, components, priority, description, story_points, sprint_id, epic_key, epic_name."
       );
     }
     consumeWriteBudget(config2, "write");
@@ -22180,7 +22517,7 @@ var get_project_config_default = {
   name: "get_project_config",
   config: {
     title: "Get project configuration",
-    description: "Collect project metadata for a config profile: Agile boards, board columns with their statuses (in column order), components, issue types and the auto-detected Epic Link / Sprint field ids. Returns a ready-to-save JSON profile for ~/.config/jira-tools/config.json. When the project has several boards, call again with board_id to pick one.",
+    description: "Collect project metadata for a config profile: Agile boards, board columns with their statuses (in column order), components, issue types with a proposed role map (epic/story/task/subtask/bug) and the auto-detected Epic Link / Sprint / Epic Name / Story Points field ids. Returns a ready-to-save JSON profile for ~/.config/jira-tools/config.json. When the project has several boards, call again with board_id to pick one.",
     inputSchema: {
       project: external_exports.string().describe('Project key, e.g. "PROJ"'),
       board_id: external_exports.number().int().optional().describe("Board id to use when the project has several boards")
@@ -22204,13 +22541,20 @@ var get_project_config_default = {
     const statuses = board ? await collectBoardStatuses(config2, client, board.id) : [];
     const epicField = findCustomField(fields, "Epic Link", ":gh-epic-link");
     const sprintField = findCustomField(fields, "Sprint", ":gh-sprint");
+    const epicNameField = findCustomField(fields, "Epic Name", ":gh-epic-label");
+    const storyPointsField = fields.find((f) => f.name === "Story Points");
+    const issueTypes = proj.issueTypes ?? [];
+    const issueTypeRoles = detectIssueTypeRoles(issueTypes);
     const profile = {
       ...board ? { boardId: board.id, boardName: board.name } : {},
       ...statuses.length ? { statuses } : {},
       ...epicField ? { epicLinkField: epicField.id } : {},
       ...sprintField ? { sprintField: sprintField.id } : {},
+      ...epicNameField ? { epicNameField: epicNameField.id } : {},
+      ...storyPointsField ? { storyPointsField: storyPointsField.id } : {},
       components: (proj.components ?? []).map((c) => c.name),
-      issueTypes: (proj.issueTypes ?? []).map((t) => t.name)
+      issueTypes: issueTypes.map((t) => t.name),
+      ...Object.keys(issueTypeRoles).length ? { issueTypeRoles } : {}
     };
     return [
       `Project profile ${key} (${proj.name ?? key}):`,
@@ -22218,6 +22562,10 @@ var get_project_config_default = {
       statuses.length ? `Statuses (column order): ${statuses.join(" \u2192 ")}` : "Statuses: no column configuration.",
       `Epic Link field: ${epicField ? epicField.id : "not detected"}`,
       `Sprint field: ${sprintField ? sprintField.id : "not detected"}`,
+      `Epic Name field: ${epicNameField ? epicNameField.id : "not detected"}`,
+      `Story Points field: ${storyPointsField ? storyPointsField.id : "not detected"}`,
+      `Issue types: ${issueTypes.map((t) => t.subtask ? `${t.name} (sub-task)` : t.name).join(", ") || "none"}`,
+      "Proposed issue type roles: " + (Object.keys(issueTypeRoles).length ? Object.entries(issueTypeRoles).map(([role, name]) => `${role} \u2192 ${name}`).join(", ") : "none detected") + " \u2014 confirm or complete the epic/story/task/subtask/bug map in /jira-tools:jira-config.",
       "",
       "Save in ~/.config/jira-tools/config.json under projects." + key + ":",
       "```json",
@@ -22228,7 +22576,7 @@ var get_project_config_default = {
 };
 
 // plugins/jira-tools/src/version.mjs
-var VERSION = "0.5.3";
+var VERSION = "0.6.0";
 
 // plugins/jira-tools/src/tools/get-version.mjs
 var get_version_default = {
@@ -22256,6 +22604,10 @@ var get_version_default = {
       const profiles = Object.keys(config2.projects ?? {});
       if (profiles.length) lines.push(`Project profiles: ${profiles.join(", ")}`);
       if (config2.language) lines.push(`Language: ${config2.language}`);
+      const budget = writeBudgetStatus(config2);
+      lines.push(
+        `Write budget this session: ${budget.creates.used}/${budget.creates.limit} creates, ${budget.total.used}/${budget.total.limit} writes`
+      );
     } else {
       lines.push(
         "Config: NOT loaded \u2014 run /jira-tools:jira-setup, or set the Jira URL and token in the Desktop plugin settings."
@@ -22280,6 +22632,7 @@ var readTools = [
 ];
 var writeTools = [
   create_issue_default,
+  create_issues_default,
   update_issue_default,
   add_comment_default,
   add_attachment_default,

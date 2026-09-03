@@ -4,6 +4,7 @@
  * settle "old cache vs new version" in any client. Never exposes the token.
  */
 import { VERSION } from '../version.mjs'
+import { writeBudgetStatus } from '../write-guard.mjs'
 
 export default {
   name: 'get_version',
@@ -33,6 +34,11 @@ export default {
       const profiles = Object.keys(config.projects ?? {})
       if (profiles.length) lines.push(`Project profiles: ${profiles.join(', ')}`)
       if (config.language) lines.push(`Language: ${config.language}`)
+      const budget = writeBudgetStatus(config)
+      lines.push(
+        `Write budget this session: ${budget.creates.used}/${budget.creates.limit} creates, `
+        + `${budget.total.used}/${budget.total.limit} writes`,
+      )
     } else {
       lines.push(
         'Config: NOT loaded — run /jira-tools:jira-setup, '

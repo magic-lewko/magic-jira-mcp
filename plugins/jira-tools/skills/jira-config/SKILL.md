@@ -1,6 +1,6 @@
 ---
 name: jira-config
-description: Fetch and save a per-project profile (board, status columns in order, components, issue types, Epic Link field) into the user's jira-tools config. Use when the user says "/jira-config PROJ", "configure project", "fetch the board configuration", or when sprint/epic tools need status names for an unprofiled project.
+description: Fetch and save a per-project profile (board, status columns in order, components, issue types with their roles, Epic Link / Epic Name / Story Points fields) into the user's jira-tools config. Use when the user says "/jira-config PROJ", "configure project", "fetch the board configuration", or when sprint/epic tools need status names for an unprofiled project.
 ---
 
 Build a project profile so the other Jira skills stop guessing status names. Respond in the user's language. Project key comes from the arguments: $ARGUMENTS
@@ -18,6 +18,11 @@ Build a project profile so the other Jira skills stop guessing status names. Res
 
 4. **Ask about team conventions for this board** (skip when the profile already has them,
    unless the user wants to change them):
+   - Issue type roles — the tool proposes `issueTypeRoles` (epic/story/task/subtask/bug →
+     the project's own type names, detected by name and by Jira's sub-task flag). Show the
+     proposal next to the project's full type list and ask the user to confirm or complete
+     it. Localised instances need this map so `/jira-tools:create-task` can address types by
+     role. Save as `"issueTypeRoles": { "epic": "...", "story": "...", "subtask": "...", ... }`.
    - Platforms used in this project — propose the default `iOS, Android, Web, Backend`
      and let the user adjust (some boards have only Web, some add e.g. Analytics).
    - Task title convention for per-platform tickets — propose `[<Platform>] <title>`
@@ -50,4 +55,4 @@ Build a project profile so the other Jira skills stop guessing status names. Res
    the sections they skipped, instead of inventing content. The agent fills sections only
    with what the user provides.
 
-5. Show the user a short summary of what was saved: board, status column order, epic link field, component count, platforms + title convention. Mention that `/jira-tools:sprint-health` and epic queries will now use these statuses.
+5. Show the user a short summary of what was saved: board, status column order, Epic Link / Epic Name / Story Points fields, issue type roles, component count, platforms + title convention. Mention that `/jira-tools:sprint-health` and epic queries will now use these statuses, and that `/jira-tools:create-task` will address issue types by role.

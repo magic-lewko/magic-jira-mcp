@@ -64,7 +64,7 @@ Transport: **stdio**. Server name: `jira`. All tools return **concise text**
 
 | Tool                  | Parameters                                                                                            | Description                                                                                                                                                                       |
 | --------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search_issues`       | `jql` (string, required), `max_results` (int, default 30, max 100), `fields` (string[], optional)     | Runs any JQL. The foundation — Claude composes the JQL itself for natural-language questions. Returns a compact list: key, type, status, priority, assignee, title, labels, updated. |
+| `search_issues`       | `jql` (string, required), `max_results` (int, default 30, max 100), `fields` (string[], optional)     | Runs any JQL. The foundation — Claude composes the JQL itself for natural-language questions. Returns a compact list: key, type, status, priority, assignee, title, labels, updated. With `fields`, an "Extra fields" block follows (CSV-style exports): top-level `id`/`key`/`self` are allowed, `created`/`updated` come back with time of day, objects are flattened to name/key (users → username, no avatar noise), and field ids Jira did not return are listed. |
 | `get_issue`           | `key` or `keys` (also handle the range `PROJ-98..111`), `all_comments?`                               | Full detail: description, comments (author+date), attachments (names+URL), components, epic/parent. Context savings: by default the 5 most recent comments and description up to 4000 chars with an explicit truncation note; `all_comments=true` lifts the limits.  |
 | `list_boards`         | `project` (optional)                                                                                 | Agile boards (needed to find a sprint).                                                                                                                                          |
 | `get_active_sprint`   | `board_id`                                                                                            | Active sprint of a board: name, dates, goal.                                                                                                                                    |
@@ -78,10 +78,11 @@ Transport: **stdio**. Server name: `jira`. All tools return **concise text**
 
 | Tool               | Parameters                                                                                              | Description                                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `create_issue`     | `project`, `issue_type`, `summary`, `description`, `components[]`, `labels[]`, `assignee?`, `epic_key?`, `sprint_id?`, `allow_duplicate?` | Creates ONE ticket. Returns key + URL. `sprint_id` (from `get_active_sprint`) places the ticket in the sprint — without it, it lands in the backlog; the Sprint/Epic Link field comes from the profile or auto-detection. |
+| `create_issue`     | `project`, `issue_type` (role `epic/story/task/subtask/bug` or exact name), `summary`, `description` (Markdown → wiki), `description_format?`, `components[]`, `labels[]`, `assignee?`, `epic_key?`, `epic_name?`, `parent?`, `story_points?`, `sprint_id?`, `allow_duplicate?` | Creates ONE ticket. Returns key + URL. A role resolves to the project's own type name via the profile's `issueTypeRoles`. `parent` is required for a sub-task type (validated: the type must be a sub-task type and the parent must not be one). `epic_name` defaults to the summary on an epic. Story Points resolve by field name only. `sprint_id` (from `get_active_sprint`) places the ticket in the sprint — without it, it lands in the backlog; custom fields come from the profile or auto-detection. |
+| `create_issues`    | `project`, `items[]` (each: the `create_issue` fields minus `project`; max 50)                            | Creates up to 50 tickets in ONE request (`POST /rest/api/2/issue/bulk`) — the sanctioned path for a breakdown. Same per-item rules as `create_issue`. The whole batch must fit the session budget or nothing is created; every item passes the duplicate guard (against Jira and within the batch). Parents must exist before children: epic → stories → sub-tasks in a second call. Returns keys and per-item errors. |
 | `add_comment`      | `key`, `body`                                                                                           | Adds a comment.                                                                                                         |
 | `transition_issue` | `key`, `transition_name`                                                                                | Status change (first fetch the available transitions, match by name case-insensitively, and if none match — list the available ones). |
-| `update_issue`     | `key`, `assignee?`, `labels?`, `add_labels?`, `components?`, `priority?`, `description?`                 | Edits an existing issue (whitelist of fields). `labels`/`components` replace the lists, `add_labels` appends (read-modify-write). Status → `transition_issue`, epic → `assign_to_epic`. |
+| `update_issue`     | `key`, `summary?`, `assignee?`, `labels?`, `add_labels?`, `components?`, `priority?`, `description?` (Markdown → wiki), `description_format?`, `story_points?`, `sprint_id?`, `epic_key?`, `epic_name?` | Edits an existing issue (whitelist of fields). `labels`/`components` replace the lists, `add_labels` appends (read-modify-write). Custom fields (Story Points, Sprint, Epic Link, Epic Name) resolve as in `create_issue`. Status → `transition_issue`; a sub-task's parent is fixed at creation. |
 | `add_attachment`   | `key`, `path`, `filename?`                                                                              | Uploads ONE file from disk as an attachment (multipart + `X-Atlassian-Token: no-check`, 10 MB limit). The path must be explicitly provided by the user — no globs. **An image pasted into the conversation is not a file**: it only reaches the model's context, and the tools do not have access to its bytes (confirmed in the documentation), so it must first be saved to disk. |
 | `link_issues`      | `from`, `to[]` (ranges, max 20), `type?` (default "Relates")                                            | Creates links between issues (POST `/rest/api/2/issueLink`). The type is matched case-insensitively to the instance's types; if none match — a list of available ones. `create-task` proposes linking the per-platform tickets of a single story. |
 | `assign_to_epic`   | `epic_key`, `keys[]` (ranges `PROJ-98..111`, max 20)                                                    | Attaches existing tasks to an epic (Agile API). Analyst use case: "stories from a release without an epic → attach them under the epic". Each task counts against the session budget. |
@@ -93,15 +94,19 @@ will be written before configuration.
 
 **Write safeguards (enforced in the server code, not in skill instructions):**
 
-1. **One ticket per call** — `create_issue` does not accept arrays; bulk creation
-   requires many explicit, visible calls.
+1. **Explicit batches, not loops** — `create_issue` creates exactly one ticket. A real
+   breakdown goes through `create_issues` (max 50 per call, one request): the whole batch
+   must fit the session budget or nothing is created, every item passes the duplicate guard
+   (against Jira and within the batch), and the skills' dry-run covers the whole set at once.
+   Loops of single creates remain unsanctioned.
 2. **Per-session write budget** — a counter in the server process: by default 100× `create_issue`
    and 300 write operations total. Once exceeded, every operation returns a readable refusal
    (reset = server restart / `/reload-plugins`). Configuration: the `writeBudget` field
    (`{"creates": n, "total": m}`) or the env vars `JIRA_WRITE_BUDGET_CREATES` /
    `JIRA_WRITE_BUDGET_TOTAL`. Purpose: a hard stop for an uncontrolled creation loop.
 3. **Duplicate guard** — before creating, `create_issue` looks for an open task
-   with the same (normalized) title in the project; a hit ⇒ refusal pointing to
+   with the same (normalized) title in the project — scoped to the parent for a sub-task,
+   because sub-task titles legitimately repeat across stories; a hit ⇒ refusal pointing to
    the existing key, unless `allow_duplicate=true` is explicitly passed (only after
    user confirmation). Limitation: it relies on Jira's text index,
    which updates with a delay for freshly created tickets — two identical
@@ -123,6 +128,16 @@ a fixed signature `_(ai-generated · jira-tools)_` — Jira comments are not lab
 - **Errors:** 401 → message "token expired/invalid + how to generate a new PAT";
   404 → "KEY not found"; other → status + the first 300 chars of the body. Never log the token.
 - **Timeout:** 30 s per request, a readable message when exceeded.
+
+### 4.4 Description formatting
+
+Jira Server renders wiki markup, not Markdown. `create_issue`, `create_issues` and
+`update_issue` convert `description` from Markdown to wiki markup in code
+(`wiki-markup.mjs`): headings, bold/italic/strikethrough, inline and fenced code, nested
+bullet and numbered lists, checklists (`- [ ]` → `(x)`, `- [x]` → `(/)`), tables, links,
+blockquotes and horizontal rules. It is deliberately the subset the skills emit, not a
+general converter. A caller that already holds wiki markup passes
+`description_format="wiki"` to skip the conversion.
 
 ## 5. Configuration
 

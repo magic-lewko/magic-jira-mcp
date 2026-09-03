@@ -15,7 +15,8 @@ Bring an existing `~/.config/jira-tools/config.json` up to the current schema WI
 
 Top level: `server`, `token`, `language`, `defaultProject`, `projects`, `writeBudget`.
 Per project (`projects.<KEY>`): `boardId`, `boardName`, `statuses`, `epicLinkField`,
-`sprintField`, `platforms`, `titleConvention`, `taskTemplate`, `components`, `issueTypes`.
+`sprintField`, `epicNameField`, `storyPointsField`, `issueTypeRoles`, `platforms`,
+`titleConvention`, `taskTemplate`, `components`, `issueTypes`.
 
 Known OBSOLETE fields to strip (from older versions): top-level `allowWrite`, `aiLabel`,
 `writeProjects`; per-project `allowWrite`. Strip anything not in the schema above.
@@ -29,8 +30,9 @@ Known OBSOLETE fields to strip (from older versions): top-level `allowWrite`, `a
 
 3. **Refresh each project profile** — for every key in `projects`, call `get_project_config`
    (server `jira`) with that key and merge the returned fields (board, statuses, epic/sprint
-   field, components, issue types). **Preserve** user-authored fields that the tool does not
-   return — `platforms`, `titleConvention`, `taskTemplate` — do not drop them. If a project
+   field, components, issue types). **Preserve** user-authored fields — `platforms`,
+   `titleConvention`, `taskTemplate`, and a saved `issueTypeRoles` (fill it from the tool's
+   proposal only when absent) — do not drop them. If a project
    profile turns out to be for a project that no longer exists (404), ask the user whether to
    drop it.
 

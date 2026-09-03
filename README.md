@@ -1,6 +1,6 @@
 # jira-tools
 
-Ask Claude about your self-hosted Jira instead of clicking around it. Examples: "show my tasks in PROJ", "sprint health for PROJ", "create a bug on iOS". One MCP server, two homes: Claude Code and Claude Desktop. 17 tools, 9 skills.
+Ask Claude about your self-hosted Jira instead of clicking around it. Examples: "show my tasks in PROJ", "sprint health for PROJ", "create a bug on iOS". One MCP server, two homes: Claude Code and Claude Desktop. 18 tools, 9 skills.
 
 Full tour: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md). Spec: [SPEC.md](SPEC.md).
 
@@ -50,7 +50,7 @@ Ask "what jira-tools version?" to see which version is connected.
 
 Read: your tasks, ticket detail, status history, boards, sprints, epic status, a sprint health report, a bug search by description, a story audit.
 
-Write: create tickets per platform, edit fields, comment, attach files, change status, link tickets, attach to an epic. Every write shows a preview first.
+Write: create tickets per platform or a whole breakdown (epic, stories, sub-tasks, also in bulk), edit fields, set Story Points, comment, attach files, change status, link tickets, attach to an epic. Descriptions are Markdown and render as Jira wiki markup. Every write shows a preview first.
 
 ## Guardrails
 

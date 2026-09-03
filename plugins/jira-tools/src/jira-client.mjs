@@ -365,6 +365,24 @@ export function createIssue(config, fields) {
 }
 
 /**
+ * Create several issues in ONE request (Jira Server default limit: 50).
+ * Jira answers 201 with the created issues plus per-item `errors`
+ * (`failedElementNumber` = index in the input); an all-failed batch is a 400
+ * and surfaces as a JiraError.
+ *
+ * @param {object} config
+ * @param {object[]} fieldsList - one Jira fields payload per issue, in order
+ * @returns {Promise<{issues: {key: string}[], errors: object[]}>}
+ */
+export function createIssuesBulk(config, fieldsList) {
+  return jiraFetch(config, '/rest/api/2/issue/bulk', {
+    method: 'POST',
+    body: { issueUpdates: fieldsList.map((fields) => ({ fields })) },
+    what: 'create issues (bulk)',
+  })
+}
+
+/**
  * Update fields of an existing issue (Jira answers 204).
  *
  * @param {object} config

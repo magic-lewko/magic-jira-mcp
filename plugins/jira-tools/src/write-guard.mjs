@@ -6,11 +6,12 @@
  *
  * 1. Session write budget — a per-process counter. Once exhausted, every write
  *    fails until the server is restarted (/reload-plugins). This is the hard
- *    stop for runaway loops mass-creating issues.
+ *    stop for runaway loops mass-creating issues. A bulk call checks the whole
+ *    batch up front (assertWriteBudget) so it refuses before creating anything.
  * 2. Duplicate guard — refuses to create an issue whose normalized summary
  *    matches an existing open issue in the same project, unless the caller
- *    explicitly passes allow_duplicate. A loop recreating the same ticket dies
- *    on its second call.
+ *    explicitly passes allow_duplicate. Scoped to the parent for sub-tasks,
+ *    because sub-task titles legitimately repeat across stories.
  *
  * Plus, per issue-creation flow: /create-task's mandatory dry-run and Claude
  * Code's own per-tool permission prompts.
@@ -34,6 +35,50 @@ export function resetWriteBudget() {
 }
 
 /**
+ * @param {{writeBudget?: {creates?: number, total?: number}}} config
+ * @returns {{creates: number, total: number}}
+ */
+function effectiveBudget(config) {
+  return { ...DEFAULT_WRITE_BUDGET, ...config?.writeBudget }
+}
+
+/**
+ * @param {number} used
+ * @param {number} limit
+ * @param {string} what
+ * @param {number} count - how many writes were requested
+ */
+function refuse(used, limit, what, count) {
+  const head = count > 1
+    ? `Session write limit would be exceeded (${used}/${limit} used, ${count} more requested — ${what}). `
+    : `Session write limit reached (${used}/${limit} — ${what}). `
+  throw new JiraError(
+    head
+    + 'This is a loop guard, not a hard cap. Raise it in ~/.config/jira-tools/config.json with '
+    + '"writeBudget": { "creates": 200, "total": 500 } (both are plain integers), or set env '
+    + 'JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL to integers. Then restart the server '
+    + '(/reload-plugins in Claude Code).',
+  )
+}
+
+/**
+ * Throw when `count` more writes of `kind` would exceed the session budget —
+ * WITHOUT consuming anything. Lets a bulk call refuse up front (nothing
+ * created) instead of dying half-way through a batch.
+ *
+ * @param {{writeBudget?: {creates?: number, total?: number}}} config
+ * @param {'create'|'write'} kind - 'create' counts against both limits
+ * @param {number} [count]
+ */
+export function assertWriteBudget(config, kind, count = 1) {
+  const budget = effectiveBudget(config)
+  if (counters.total + count > budget.total) refuse(counters.total, budget.total, 'all writes', count)
+  if (kind === 'create' && counters.creates + count > budget.creates) {
+    refuse(counters.creates, budget.creates, 'issue creation', count)
+  }
+}
+
+/**
  * Consume one unit of the session write budget or throw a user-facing error.
  * Call it immediately BEFORE the actual write request.
  *
@@ -41,25 +86,24 @@ export function resetWriteBudget() {
  * @param {'create'|'write'} kind - 'create' counts against both limits
  */
 export function consumeWriteBudget(config, kind) {
-  const budget = { ...DEFAULT_WRITE_BUDGET, ...config?.writeBudget }
-
-  const refuse = (used, limit, what) => {
-    throw new JiraError(
-      `Session write limit reached (${used}/${limit} — ${what}). `
-      + 'This is a loop guard, not a hard cap. Raise it in ~/.config/jira-tools/config.json with '
-      + '"writeBudget": { "creates": 200, "total": 500 } (both are plain integers), or set env '
-      + 'JIRA_WRITE_BUDGET_CREATES / JIRA_WRITE_BUDGET_TOTAL to integers. Then restart the server '
-      + '(/reload-plugins in Claude Code).',
-    )
-  }
-
-  if (counters.total >= budget.total) refuse(counters.total, budget.total, 'all writes')
-  if (kind === 'create' && counters.creates >= budget.creates) {
-    refuse(counters.creates, budget.creates, 'issue creation')
-  }
-
+  assertWriteBudget(config, kind, 1)
   counters.total += 1
   if (kind === 'create') counters.creates += 1
+}
+
+/**
+ * Used/limit counters for this session — surfaced by get_version so a caller
+ * can check the headroom before starting a big batch.
+ *
+ * @param {{writeBudget?: {creates?: number, total?: number}}} config
+ * @returns {{creates: {used: number, limit: number}, total: {used: number, limit: number}}}
+ */
+export function writeBudgetStatus(config) {
+  const budget = effectiveBudget(config)
+  return {
+    creates: { used: counters.creates, limit: budget.creates },
+    total: { used: counters.total, limit: budget.total },
+  }
 }
 
 /**
@@ -90,23 +134,26 @@ function jqlTextOperand(summary) {
 }
 
 /**
- * Find an existing OPEN issue in the project whose summary matches (after
- * normalization). Returns the issue or null. Best-effort: when the check
- * itself fails (exotic Jira quirks), creation proceeds — the session budget
- * remains the hard rail.
+ * Find an existing OPEN issue whose summary matches (after normalization).
+ * Scoped to the whole project, or to one parent when `parent` is given —
+ * sub-task titles like "FT" or "Config" legitimately repeat across stories.
+ * Returns the issue or null. Best-effort: when the check itself fails (exotic
+ * Jira quirks), creation proceeds — the session budget remains the hard rail.
  *
  * @param {object} config
  * @param {{searchIssues: Function}} client - injected for testability
  * @param {string} project - project key (uppercase)
  * @param {string} summary - candidate summary
+ * @param {{parent?: string}} [opts] - parent key to scope the search to
  * @returns {Promise<object|null>}
  */
-export async function findDuplicate(config, client, project, summary) {
+export async function findDuplicate(config, client, project, summary, { parent } = {}) {
   const wanted = normalizeSummary(summary)
   if (!wanted) return null
   const operand = jqlTextOperand(summary)
   if (!operand) return null
-  const jql = `project = ${project} AND summary ~ "${operand}" AND statusCategory != Done`
+  const scope = parent ? ` AND parent = ${String(parent).toUpperCase()}` : ''
+  const jql = `project = ${project} AND summary ~ "${operand}"${scope} AND statusCategory != Done`
   try {
     const page = await client.searchIssues(config, { jql, maxResults: 20 })
     return page.issues.find((issue) => normalizeSummary(issue.fields?.summary) === wanted) ?? null

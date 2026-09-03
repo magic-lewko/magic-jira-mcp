@@ -1,60 +1,29 @@
 import { z } from 'zod'
 import { JiraError } from '../jira-client.mjs'
-import { getProjectProfile } from '../config.mjs'
 import { consumeWriteBudget, findDuplicate } from '../write-guard.mjs'
+import { ISSUE_ITEM_INPUT, buildIssueFields, loadProjectTypes } from '../issue-fields.mjs'
 
 /**
- * Resolve a Jira Server custom field id (Epic Link, Sprint): project profile
- * first, then discovery via /rest/api/2/field. No caching — creates are rare
- * and the profile is the fast path.
- *
- * @param {object} config
- * @param {object} client
- * @param {string} project
- * @param {{profileKey: string, fieldName: string, customSuffix: string}} spec
- * @returns {Promise<string>}
- */
-async function resolveField(config, client, project, { profileKey, fieldName, customSuffix }) {
-  const fromProfile = getProjectProfile(config, project)[profileKey]
-  if (fromProfile) return fromProfile
-  const fields = await client.listFields(config)
-  const field = fields.find((f) => f.name === fieldName)
-    ?? fields.find((f) => f.schema?.custom?.endsWith(customSuffix))
-  if (!field) {
-    throw new JiraError(`Field not found: ${fieldName} — run /jira-tools:jira-config for the project, or omit this parameter.`)
-  }
-  return field.id
-}
-
-const EPIC_FIELD = { profileKey: 'epicLinkField', fieldName: 'Epic Link', customSuffix: ':gh-epic-link' }
-const SPRINT_FIELD = { profileKey: 'sprintField', fieldName: 'Sprint', customSuffix: ':gh-sprint' }
-
-/**
- * WRITE tool. Registered only behind JIRA_ALLOW_WRITE=true. Hard rails:
- * one issue per call, session budget, duplicate guard (SPEC §4.2).
+ * WRITE tool. Creates exactly ONE issue. Hard rails: session budget,
+ * duplicate guard (scoped to the parent for sub-tasks), one issue per call
+ * (SPEC §4.2). All field rules live in issue-fields.mjs and are shared with
+ * create_issues, so a single create and a bulk create behave identically.
  */
 export default {
   name: 'create_issue',
   config: {
     title: 'Create issue (WRITE)',
-    description: 'Create exactly ONE Jira issue and return its key + URL. '
-      + 'NEVER call this in a loop — for a batch of tickets use the /jira-tools:create-task skill '
-      + '(mandatory dry-run + user confirmation). Server-side rails: refuses when an open issue '
-      + 'with the same summary exists (unless allow_duplicate=true) and enforces a per-session '
-      + 'write budget.',
+    description: 'Create exactly ONE Jira issue and return its key + URL. Supports epics (epic_name, '
+      + 'defaults to the summary), sub-tasks (parent) and role-based issue types '
+      + '(epic/story/task/subtask/bug resolved to the project\'s own type names). Descriptions are '
+      + 'Markdown, converted to Jira wiki markup. For a whole breakdown use create_issues (up to 50 '
+      + 'in one call) — but ALWAYS after the /jira-tools:create-task dry-run and the user\'s '
+      + 'confirmation. Server-side rails: refuses when an open issue with the same summary exists '
+      + '(same parent for sub-tasks) unless allow_duplicate=true, and enforces a per-session write '
+      + 'budget.',
     inputSchema: {
       project: z.string().describe('Project key, e.g. "PROJ"'),
-      issue_type: z.string().describe('Issue type name, e.g. "Task", "Bug", "Story"'),
-      summary: z.string().min(5).describe('Issue title'),
-      description: z.string().optional().describe('Issue description (Jira wiki markup or plain text)'),
-      components: z.array(z.string()).optional().describe('Component names, e.g. ["iOS"]'),
-      labels: z.array(z.string()).optional(),
-      assignee: z.string().optional().describe('Jira username to assign'),
-      epic_key: z.string().optional().describe('Epic to link the issue to'),
-      sprint_id: z.number().int().optional()
-        .describe('Sprint id to place the issue in (find it via get_active_sprint); omit for backlog'),
-      allow_duplicate: z.boolean().optional()
-        .describe('Set true ONLY when the user explicitly confirmed creating a near-duplicate'),
+      ...ISSUE_ITEM_INPUT,
     },
   },
 
@@ -66,39 +35,22 @@ export default {
   async run(args, { config, client }) {
     const project = args.project.trim().toUpperCase()
     const summary = args.summary.trim()
+    const parentKey = args.parent?.trim().toUpperCase()
 
     if (!args.allow_duplicate) {
-      const duplicate = await findDuplicate(config, client, project, summary)
+      const duplicate = await findDuplicate(config, client, project, summary, { parent: parentKey })
       if (duplicate) {
+        const where = parentKey ? `${parentKey} already has` : `project ${project} already has`
         throw new JiraError(
-          `Not created — project ${project} already has an open issue with this title: `
+          `Not created — ${where} an open issue with this title: `
           + `${duplicate.key} („${duplicate.fields?.summary}", status: ${duplicate.fields?.status?.name ?? '?'}). `
           + 'If the duplicate is intended and the user confirmed it, call again with allow_duplicate=true.',
         )
       }
     }
 
-    const fields = {
-      project: { key: project },
-      issuetype: { name: args.issue_type.trim() },
-      summary,
-    }
-    if (args.description) fields.description = args.description
-    if (args.components?.length) fields.components = args.components.map((name) => ({ name }))
-    // AI transparency (enforced in code, always on): every agent-created issue
-    // gets a filterable `ai-generated` label.
-    const labels = [...(args.labels ?? [])]
-    if (!labels.includes('ai-generated')) labels.push('ai-generated')
-    fields.labels = labels
-    if (args.assignee) fields.assignee = { name: args.assignee }
-    if (args.epic_key) {
-      const epicField = await resolveField(config, client, project, EPIC_FIELD)
-      fields[epicField] = args.epic_key.trim().toUpperCase()
-    }
-    if (args.sprint_id !== undefined) {
-      const sprintField = await resolveField(config, client, project, SPRINT_FIELD)
-      fields[sprintField] = args.sprint_id
-    }
+    const projectTypes = await loadProjectTypes(config, client, project)
+    const { fields } = await buildIssueFields(args, { config, client, project, projectTypes })
 
     consumeWriteBudget(config, 'create')
     const created = await client.createIssue(config, fields)

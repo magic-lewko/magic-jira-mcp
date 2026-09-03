@@ -49,7 +49,7 @@ The plugin adds the `ai-generated` label to each ticket it creates. The plugin a
 
 - The title matches an open ticket. The plugin points you to that ticket.
 - The session reaches the limit of 100 new tickets or 300 writes. This stops a loop.
-- The plugin creates one ticket per call. It has no bulk mode.
+- A bulk call creates at most 50 tickets. The whole batch must fit the session limit, or the plugin creates nothing.
 
 ## Problems
 

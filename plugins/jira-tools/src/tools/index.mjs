@@ -1,15 +1,16 @@
 /**
  * @fileoverview Tool registry. One file = one MCP tool (SPEC §3).
  *
- * Write tools (Phase 2: create_issue, add_comment, transition_issue) will land
- * in `writeTools` and are registered ONLY when JIRA_ALLOW_WRITE=true —
- * the gate lives in server.mjs and is already tested.
+ * Read and write tools are ALWAYS registered — there is no write-mode gate.
+ * Write safety lives inside the tools (session budget, duplicate guard) and
+ * in the skills' mandatory dry-run (see write-guard.mjs, SPEC §4.2).
  */
 
 import addAttachment from './add-attachment.mjs'
 import addComment from './add-comment.mjs'
 import assignToEpic from './assign-to-epic.mjs'
 import createIssue from './create-issue.mjs'
+import createIssues from './create-issues.mjs'
 import linkIssues from './link-issues.mjs'
 import searchIssues from './search-issues.mjs'
 import transitionIssue from './transition-issue.mjs'
@@ -24,7 +25,7 @@ import getCurrentUser from './get-current-user.mjs'
 import getProjectConfig from './get-project-config.mjs'
 import getVersion from './get-version.mjs'
 
-/** Read-only tools — always registered. */
+/** Read-only tools. */
 export const readTools = [
   searchIssues,
   getIssue,
@@ -38,9 +39,10 @@ export const readTools = [
   getVersion,
 ]
 
-/** Write tools — registered only behind JIRA_ALLOW_WRITE=true (gate in server.mjs). */
+/** Write tools — guarded in code by the session budget and the duplicate guard. */
 export const writeTools = [
   createIssue,
+  createIssues,
   updateIssue,
   addComment,
   addAttachment,

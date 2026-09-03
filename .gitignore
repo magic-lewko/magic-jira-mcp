@@ -15,3 +15,6 @@ jira-tools.config.json
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# OMC operational state (never committed)
+.omc/

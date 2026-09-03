@@ -32,7 +32,7 @@ function setup({ client = {}, config = CONFIG } = {}) {
 
 test('all write tools are registered (no write-mode gate)', () => {
   const tools = setup()
-  for (const name of ['create_issue', 'update_issue', 'add_comment', 'add_attachment', 'transition_issue', 'assign_to_epic', 'link_issues']) {
+  for (const name of ['create_issue', 'create_issues', 'update_issue', 'add_comment', 'add_attachment', 'transition_issue', 'assign_to_epic', 'link_issues']) {
     assert.ok(tools.has(name), `${name} should be registered`)
   }
 })

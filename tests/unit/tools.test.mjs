@@ -61,6 +61,7 @@ test('get_version reports the loaded config server', async () => {
   const tools = setup() // CONFIG points at https://jira.example.pl
   const result = await tools.get('get_version').handler({})
   assert.match(result.content[0].text, /Config: loaded — server https:\/\/jira\.example\.pl/)
+  assert.match(result.content[0].text, /Write budget this session: \d+\/\d+ creates, \d+\/\d+ writes/)
 })
 
 test('write tools are always registered (no write-mode gate)', () => {
@@ -87,6 +88,41 @@ test('search_issues formats the page compactly', async () => {
   })
   const result = await tools.get('search_issues').handler({ jql: 'project = PROJ' })
   assert.match(result.content[0].text, /PROJ-42 \[In Progress\] Bug\/High/)
+})
+
+test('search_issues extra fields: top-level id, full timestamps, flattened objects, unknown fields flagged', async () => {
+  const issue = {
+    id: '134157',
+    key: 'PROJ-9',
+    self: 'https://jira.example.pl/rest/api/2/issue/134157',
+    fields: {
+      summary: 'Report row',
+      status: { name: 'Done' },
+      issuetype: { name: 'Task' },
+      priority: { name: 'Medium' },
+      assignee: null,
+      labels: [],
+      updated: '2026-08-12T14:03:22.000+0200',
+      created: '2026-08-01T09:15:00.000+0200',
+      reporter: { name: 'jkowalski', displayName: 'Jan Kowalski', avatarUrls: { '48x48': 'https://x/a.png' } },
+      resolution: { name: 'Done', id: '1' },
+      components: [{ name: 'Web' }, { name: 'Backend' }],
+    },
+  }
+  let asked = null
+  const tools = setup({
+    client: { searchIssues: async (_config, opts) => { asked = opts.fields; return { issues: [issue], total: 1, startAt: 0 } } },
+  })
+  const result = await tools.get('search_issues').handler({
+    jql: 'project = PROJ',
+    fields: ['id', 'created', 'updated', 'reporter', 'resolution', 'components', 'nosuchfield'],
+  })
+  const text = result.content[0].text
+  assert.match(text, /PROJ-9 · id: 134157 · created: 2026-08-01 09:15 · updated: 2026-08-12 14:03 · reporter: jkowalski · resolution: Done · components: Web, Backend · nosuchfield: \?/)
+  assert.match(text, /not returned by Jira: nosuchfield/)
+  assert.ok(!text.includes('avatarUrls'), 'objects must be flattened, never raw JSON')
+  assert.ok(asked.includes('reporter') && asked.includes('updated'), 'requested fields are fetched (updated included, even though it is a default field)')
+  assert.ok(!asked.includes('id'), 'top-level id is not requested from Jira as a field')
 })
 
 test('get_issue expands ranges and reports per-key errors', async () => {
