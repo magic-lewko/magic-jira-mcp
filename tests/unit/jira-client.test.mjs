@@ -2,7 +2,7 @@ import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  expandKeys, jiraFetch, searchIssues, getSprintIssues, listBoards, JiraError,
+  expandKeys, jiraFetch, searchIssues, getSprintIssues, listBoards, linkIssues, JiraError,
 } from '../../plugins/jira-tools/src/jira-client.mjs'
 
 const CONFIG = { server: 'https://jira.example.pl', token: 'secret-token' }
@@ -137,4 +137,21 @@ test('listBoards: collects {values,isLast} pages and passes project filter', asy
   const boards = await listBoards(CONFIG, { project: 'PROJ' })
   assert.deepEqual(boards.map((b) => b.id), [1, 2])
   assert.equal(new URL(calls[0].url).searchParams.get('projectKeyOrId'), 'PROJ')
+})
+
+// --- issue links ------------------------------------------------------------
+
+test('linkIssues: `from` is the source — sent as inwardIssue (Jira Server semantics)', async () => {
+  // Verified live on Jira Server 8.21.0: POST {inwardIssue: A, outwardIssue: B, type: Blocks}
+  // records "A blocks B". Sending `from` as outwardIssue (<= 0.6.0) reversed every link.
+  const calls = mockFetch([{ status: 201, body: '' }])
+  const result = await linkIssues(CONFIG, { type: 'Blocks', from: 'PROJ-1', to: 'PROJ-2' })
+  assert.equal(result, null)
+  assert.equal(calls[0].url, 'https://jira.example.pl/rest/api/2/issueLink')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    type: { name: 'Blocks' },
+    inwardIssue: { key: 'PROJ-1' },
+    outwardIssue: { key: 'PROJ-2' },
+  })
 })

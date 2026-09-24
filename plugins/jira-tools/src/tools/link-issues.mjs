@@ -19,9 +19,9 @@ export default {
   config: {
     title: 'Link issues (WRITE)',
     description: 'Create a link between issues (e.g. "Relates"). Links `from` to each key in '
-      + '`to` (keys and ranges, max ' + MAX_TARGETS + '). `from` is the outward side (for '
-      + '"Blocks": from blocks to). When the type name is unknown, returns the available '
-      + 'link types. Counts against the per-session write budget.',
+      + '`to` (keys and ranges, max ' + MAX_TARGETS + '). `from` is the source of the link: for '
+      + '"Blocks", from blocks to (each key in `to` is blocked by `from`). When the type name is '
+      + 'unknown, returns the available link types. Counts against the per-session write budget.',
     inputSchema: {
       from: z.string().describe('Source issue key, e.g. "PROJ-42"'),
       to: z.array(z.string()).min(1).describe('Target keys and/or ranges to link to'),

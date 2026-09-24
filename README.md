@@ -10,11 +10,11 @@ Full tour: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md). Spec: [SPE
 https://github.com/magic-lewko/magic-jira-mcp
 ```
 
-Copy it. That is the whole install source for both Claude Code and Claude Desktop.
+Copy it. That is the install source for Claude Code. Claude Desktop uses a one-file bundle (see below).
 
 ## Before you start
 
-- Node.js 20 or later. Check with `node -v`.
+- For Claude Code: Node.js 20 or later. Check with `node -v`. Claude Desktop does not need Node.js.
 - Jira reachable. Turn on the VPN if your Jira needs it.
 - A Personal Access Token. In Jira: avatar (top right), then Personal Access Tokens, then Create token.
 
@@ -31,18 +31,24 @@ Done when you see "Logged in as ...". Then ask: show my tasks in PROJ.
 
 ## Install in Claude Desktop
 
-1. Settings, then Plugins, then Add, then Add marketplace, then Add from a repository. Paste the link above.
-2. Fill in your Jira URL and Personal Access Token when it asks.
+Claude Desktop installs the tools from one file: `jira-tools-<version>.mcpb`. Get the file from the release page or from the maintainer.
+
+1. Double-click the file. Claude Desktop opens the install window.
+2. Fill in your Jira URL and Personal Access Token. Click Install.
 3. Ask: who am I in Jira? You should see your own name.
 
-Run it "On your computer", not "In the cloud". The Jira tools connect only on your machine.
+If the double-click does nothing: Settings, then Extensions, then Advanced settings, then Install Extension. Pick the file.
+
+The tools run on your computer. Turn on the VPN before you ask about Jira. The slash commands (skills) are for Claude Code only. In Claude Desktop, ask in plain words.
+
+To build the file yourself: `npm run build:mcpb`. The result lands in `dist/`.
 
 ## Update
 
 New versions land on `main`.
 
 - Claude Code: `/plugin marketplace update magic-jira-mcp`, then `/plugin install jira-tools@magic-jira-mcp`, then `/jira-tools:jira-update`.
-- Claude Desktop: re-sync the plugin.
+- Claude Desktop: install the new `.mcpb` file. It replaces the old version.
 
 Ask "what jira-tools version?" to see which version is connected.
 

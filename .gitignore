@@ -12,6 +12,9 @@ jira-tools.config.json
 # Claude Code local session settings (never shared)
 .claude/settings.local.json
 
+# Build output (Desktop .mcpb bundle)
+dist/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

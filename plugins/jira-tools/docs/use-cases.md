@@ -6,7 +6,7 @@ Commands that start with `/` work in Claude Code only. The plain-language prompt
 ## First steps
 
 1. Install the plugin. See the main README.
-2. Configure the connection. In Claude Code, run `/jira-tools:jira-setup`. In Claude Desktop, type the Jira URL and the token in the plugin settings.
+2. Configure the connection. In Claude Code, run `/jira-tools:jira-setup`. In Claude Desktop, type the Jira URL and the token in the install window of the `.mcpb` bundle.
 3. Save a project profile. In Claude Code, run `/jira-tools:jira-config PROJ`.
 4. Ask `show my tasks in PROJ`.
 

@@ -42,7 +42,7 @@ export default {
     } else {
       lines.push(
         'Config: NOT loaded — run /jira-tools:jira-setup, '
-        + 'or set the Jira URL and token in the Desktop plugin settings.',
+        + 'or set the Jira URL and token in the Desktop extension or plugin settings.',
       )
     }
     return lines.join('\n')

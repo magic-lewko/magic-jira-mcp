@@ -20,7 +20,7 @@ import { VERSION } from './version.mjs'
 /** Shown by every tool until the user completes the setup. */
 const NOT_CONFIGURED_MESSAGE =
   'Jira is not configured yet. In Claude Code run /jira-tools:jira-setup. In Claude Desktop '
-  + 'fill the Jira URL and token in the plugin settings. Alternatively create '
+  + 'fill the Jira URL and token in the extension or plugin settings. Alternatively create '
   + '~/.config/jira-tools/config.json with "server" and "token" fields (see the README).'
 
 /**

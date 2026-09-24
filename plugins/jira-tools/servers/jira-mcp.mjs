@@ -21189,7 +21189,7 @@ function expandKeys(inputs) {
 function mapHttpError(status, bodyText, what) {
   if (status === 401) {
     return new JiraError(
-      "The PAT token expired or is invalid (401). Ask the user for a fresh Personal Access Token (Jira \u2192 avatar \u2192 Personal Access Tokens \u2192 Create token), then save it: in Claude Code run /jira-tools:jira-setup --update to write it to ~/.config/jira-tools/config.json; in Claude Desktop the config file cannot be written from here \u2014 tell the user to paste the new token into the jira-tools plugin settings (token field).",
+      "The PAT token expired or is invalid (401). Ask the user for a fresh Personal Access Token (Jira \u2192 avatar \u2192 Personal Access Tokens \u2192 Create token), then save it: in Claude Code run /jira-tools:jira-setup --update to write it to ~/.config/jira-tools/config.json; in Claude Desktop the config file cannot be written from here \u2014 tell the user to paste the new token into the jira-tools extension or plugin settings (token field).",
       { status }
     );
   }
@@ -21373,8 +21373,8 @@ function listIssueLinkTypes(config2) {
 function linkIssues(config2, { type, from, to }) {
   return jiraFetch(config2, "/rest/api/2/issueLink", {
     method: "POST",
-    body: { type: { name: type }, outwardIssue: { key: from }, inwardIssue: { key: to } },
-    what: `link ${from} \u2194 ${to}`
+    body: { type: { name: type }, inwardIssue: { key: from }, outwardIssue: { key: to } },
+    what: `link ${from} \u2192 ${to}`
   });
 }
 function addIssuesToEpic(config2, epicKey, issueKeys) {
@@ -21934,7 +21934,7 @@ var link_issues_default = {
   name: "link_issues",
   config: {
     title: "Link issues (WRITE)",
-    description: 'Create a link between issues (e.g. "Relates"). Links `from` to each key in `to` (keys and ranges, max ' + MAX_TARGETS + '). `from` is the outward side (for "Blocks": from blocks to). When the type name is unknown, returns the available link types. Counts against the per-session write budget.',
+    description: 'Create a link between issues (e.g. "Relates"). Links `from` to each key in `to` (keys and ranges, max ' + MAX_TARGETS + '). `from` is the source of the link: for "Blocks", from blocks to (each key in `to` is blocked by `from`). When the type name is unknown, returns the available link types. Counts against the per-session write budget.',
     inputSchema: {
       from: external_exports.string().describe('Source issue key, e.g. "PROJ-42"'),
       to: external_exports.array(external_exports.string()).min(1).describe("Target keys and/or ranges to link to"),
@@ -22576,7 +22576,7 @@ var get_project_config_default = {
 };
 
 // plugins/jira-tools/src/version.mjs
-var VERSION = "0.6.0";
+var VERSION = "0.6.1";
 
 // plugins/jira-tools/src/tools/get-version.mjs
 var get_version_default = {
@@ -22610,7 +22610,7 @@ var get_version_default = {
       );
     } else {
       lines.push(
-        "Config: NOT loaded \u2014 run /jira-tools:jira-setup, or set the Jira URL and token in the Desktop plugin settings."
+        "Config: NOT loaded \u2014 run /jira-tools:jira-setup, or set the Jira URL and token in the Desktop extension or plugin settings."
       );
     }
     return lines.join("\n");
@@ -22642,7 +22642,7 @@ var writeTools = [
 ];
 
 // plugins/jira-tools/src/server.mjs
-var NOT_CONFIGURED_MESSAGE = 'Jira is not configured yet. In Claude Code run /jira-tools:jira-setup. In Claude Desktop fill the Jira URL and token in the plugin settings. Alternatively create ~/.config/jira-tools/config.json with "server" and "token" fields (see the README).';
+var NOT_CONFIGURED_MESSAGE = 'Jira is not configured yet. In Claude Code run /jira-tools:jira-setup. In Claude Desktop fill the Jira URL and token in the extension or plugin settings. Alternatively create ~/.config/jira-tools/config.json with "server" and "token" fields (see the README).';
 function toHandler(tool, { getConfig, client }) {
   return async (args) => {
     const config2 = getConfig();

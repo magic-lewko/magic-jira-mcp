@@ -81,7 +81,7 @@ function mapHttpError(status, bodyText, what) {
       + '(Jira → avatar → Personal Access Tokens → Create token), then save it: in Claude Code run '
       + '/jira-tools:jira-setup --update to write it to ~/.config/jira-tools/config.json; in Claude '
       + 'Desktop the config file cannot be written from here — tell the user to paste the new token '
-      + 'into the jira-tools plugin settings (token field).',
+      + 'into the jira-tools extension or plugin settings (token field).',
       { status },
     )
   }
@@ -465,8 +465,15 @@ export function listIssueLinkTypes(config) {
 }
 
 /**
- * Link two issues (Jira answers 201, empty body). `from` is the outward side
- * (e.g. for "Blocks": from blocks to).
+ * Link two issues (Jira answers 201, empty body). `from` is the source of the
+ * link: for "Blocks", from blocks to.
+ *
+ * Jira's field names are the opposite of what they suggest: in the POST body
+ * `inwardIssue` is the SOURCE (the one that "blocks") and `outwardIssue` the
+ * destination (the one that "is blocked by"). Verified on Jira Server 8.21.0
+ * (2026-09-24): posting {outwardIssue: A, inwardIssue: B, type: Blocks} made
+ * B block A. Versions <= 0.6.0 sent `from` as `outwardIssue` and therefore
+ * recorded every directional link the wrong way round.
  *
  * @param {object} config
  * @param {{type: string, from: string, to: string}} link
@@ -475,8 +482,8 @@ export function listIssueLinkTypes(config) {
 export function linkIssues(config, { type, from, to }) {
   return jiraFetch(config, '/rest/api/2/issueLink', {
     method: 'POST',
-    body: { type: { name: type }, outwardIssue: { key: from }, inwardIssue: { key: to } },
-    what: `link ${from} ↔ ${to}`,
+    body: { type: { name: type }, inwardIssue: { key: from }, outwardIssue: { key: to } },
+    what: `link ${from} → ${to}`,
   })
 }
 
