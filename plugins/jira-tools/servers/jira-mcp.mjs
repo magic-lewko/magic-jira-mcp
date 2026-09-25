@@ -21116,10 +21116,12 @@ __export(jira_client_exports, {
   addIssuesToEpic: () => addIssuesToEpic,
   createIssue: () => createIssue,
   createIssuesBulk: () => createIssuesBulk,
+  createSprint: () => createSprint,
   debug: () => debug,
   doTransition: () => doTransition,
   expandKeys: () => expandKeys,
   getActiveSprint: () => getActiveSprint,
+  getBoard: () => getBoard,
   getBoardConfiguration: () => getBoardConfiguration,
   getEpicIssues: () => getEpicIssues,
   getIssue: () => getIssue,
@@ -21383,6 +21385,16 @@ function addIssuesToEpic(config2, epicKey, issueKeys) {
     body: { issues: issueKeys },
     what: `assign issues to epic ${epicKey}`
   });
+}
+function getBoard(config2, boardId) {
+  return jiraFetch(config2, `/rest/agile/1.0/board/${boardId}`, { what: `board ${boardId}` });
+}
+function createSprint(config2, { boardId, name, goal, startDate, endDate }) {
+  const body = { name, originBoardId: boardId };
+  if (goal) body.goal = goal;
+  if (startDate) body.startDate = startDate;
+  if (endDate) body.endDate = endDate;
+  return jiraFetch(config2, "/rest/agile/1.0/sprint", { method: "POST", body, what: `create sprint "${name}"` });
 }
 
 // plugins/jira-tools/src/write-guard.mjs
@@ -21925,6 +21937,75 @@ var create_issues_default = {
       lines.push(`${failed.size} item(s) failed \u2014 fix and create those again; the created ones are NOT rolled back.`);
     }
     return lines.join("\n");
+  }
+};
+
+// plugins/jira-tools/src/tools/create-sprint.mjs
+var MAX_NAME_LENGTH = 30;
+var create_sprint_default = {
+  name: "create_sprint",
+  config: {
+    title: "Create sprint (WRITE)",
+    description: `Create ONE future sprint on a Scrum board (it appears in the backlog and is NOT started). Returns the sprint id to pass as sprint_id to create_issue / update_issue. The name is at most ${MAX_NAME_LENGTH} characters (Jira limit). Dates are optional and come together (ISO 8601 date-time, e.g. "2026-10-06T09:00:00.000+02:00"). Refuses Kanban boards and refuses when an active or future sprint with the same name already exists on the board, unless allow_duplicate=true. Counts against the per-session write budget.`,
+    inputSchema: {
+      board_id: external_exports.number().int().describe("Scrum board id (from list_boards or the project profile)"),
+      name: external_exports.string().min(1).describe('Sprint name, e.g. "Sprint 13"'),
+      goal: external_exports.string().optional().describe("Sprint goal"),
+      start_date: external_exports.string().optional().describe("Planned start, ISO 8601 date-time; requires end_date"),
+      end_date: external_exports.string().optional().describe("Planned end, ISO 8601 date-time; requires start_date"),
+      allow_duplicate: external_exports.boolean().optional().describe("Create even though a sprint with this name exists \u2014 only after the user explicitly confirmed it")
+    }
+  },
+  /**
+   * @param {{board_id: number, name: string, goal?: string, start_date?: string, end_date?: string, allow_duplicate?: boolean}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ board_id, name, goal, start_date, end_date, allow_duplicate }, { config: config2, client }) {
+    const sprintName = name.trim();
+    if (!sprintName) throw new JiraError("Sprint name must not be empty.");
+    if (sprintName.length > MAX_NAME_LENGTH) {
+      throw new JiraError(
+        `Sprint name is too long (${sprintName.length} characters, Jira allows ${MAX_NAME_LENGTH}). Shorten it.`
+      );
+    }
+    if (start_date === void 0 !== (end_date === void 0)) {
+      throw new JiraError("Provide start_date and end_date together, or neither.");
+    }
+    if (start_date !== void 0) {
+      const start = Date.parse(start_date);
+      const end = Date.parse(end_date);
+      if (Number.isNaN(start) || Number.isNaN(end)) {
+        throw new JiraError('start_date and end_date must be ISO 8601 date-times, e.g. "2026-10-06T09:00:00.000+02:00".');
+      }
+      if (end <= start) throw new JiraError("end_date must be after start_date.");
+    }
+    const board = await client.getBoard(config2, board_id);
+    const boardType = String(board?.type ?? "").toLowerCase();
+    if (boardType && boardType !== "scrum") {
+      throw new JiraError(
+        `Board ${board_id} ("${board.name}") is a ${boardType} board \u2014 sprints exist only on Scrum boards.`
+      );
+    }
+    if (!allow_duplicate) {
+      const sprints = await client.listSprints(config2, board_id, { state: "active,future" });
+      const wanted = sprintName.toLowerCase();
+      const duplicate = sprints.find((s) => String(s.name ?? "").trim().toLowerCase() === wanted);
+      if (duplicate) {
+        throw new JiraError(
+          `Not created \u2014 board ${board_id} already has a ${duplicate.state} sprint named "${duplicate.name}" (id ${duplicate.id}). If a second one is intended and the user confirmed it, call again with allow_duplicate=true.`
+        );
+      }
+    }
+    consumeWriteBudget(config2, "write");
+    const sprint = await client.createSprint(config2, {
+      boardId: board_id,
+      name: sprintName,
+      goal,
+      startDate: start_date,
+      endDate: end_date
+    });
+    return `Created sprint "${sprint.name}" (id ${sprint.id}, ${sprint.state}) on board ${board_id} \u2014 ${config2.server}/secure/RapidBoard.jspa?rapidView=${board_id}&view=planning`;
   }
 };
 
@@ -22576,7 +22657,7 @@ var get_project_config_default = {
 };
 
 // plugins/jira-tools/src/version.mjs
-var VERSION = "0.6.1";
+var VERSION = "0.7.0";
 
 // plugins/jira-tools/src/tools/get-version.mjs
 var get_version_default = {
@@ -22638,7 +22719,8 @@ var writeTools = [
   add_attachment_default,
   transition_issue_default,
   assign_to_epic_default,
-  link_issues_default
+  link_issues_default,
+  create_sprint_default
 ];
 
 // plugins/jira-tools/src/server.mjs

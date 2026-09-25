@@ -32,7 +32,7 @@ function setup({ client = {}, config = CONFIG } = {}) {
 
 test('all write tools are registered (no write-mode gate)', () => {
   const tools = setup()
-  for (const name of ['create_issue', 'create_issues', 'update_issue', 'add_comment', 'add_attachment', 'transition_issue', 'assign_to_epic', 'link_issues']) {
+  for (const name of ['create_issue', 'create_issues', 'update_issue', 'add_comment', 'add_attachment', 'transition_issue', 'assign_to_epic', 'link_issues', 'create_sprint']) {
     assert.ok(tools.has(name), `${name} should be registered`)
   }
 })
@@ -339,6 +339,111 @@ test('link_issues: drops the source key from targets and rejects an empty set', 
   const result = await tools.get('link_issues').handler({ from: 'PROJ-1', to: ['PROJ-1'] })
   assert.equal(result.isError, true)
   assert.match(result.content[0].text, /at least one target issue/)
+})
+
+// --- create_sprint -----------------------------------------------------------
+
+const SCRUM_BOARD = { getBoard: async () => ({ id: 7, name: 'PROJ board', type: 'scrum' }) }
+const NEW_SPRINT = { id: 99, name: 'Sprint 13', state: 'future' }
+
+test('create_sprint: creates a future sprint on a Scrum board and returns id + backlog URL', async () => {
+  let sent = null
+  let listed = null
+  const tools = setup({
+    client: {
+      ...SCRUM_BOARD,
+      listSprints: async (_config, boardId, opts) => { listed = { boardId, opts }; return [{ id: 1, name: 'Sprint 12', state: 'active' }] },
+      createSprint: async (_config, sprint) => { sent = sprint; return { ...NEW_SPRINT, name: sprint.name } },
+    },
+  })
+  const result = await tools.get('create_sprint').handler({ board_id: 7, name: ' Sprint 13 ', goal: 'Ship it' })
+  assert.equal(result.isError, undefined)
+  assert.deepEqual(listed, { boardId: 7, opts: { state: 'active,future' } })
+  assert.deepEqual(sent, { boardId: 7, name: 'Sprint 13', goal: 'Ship it', startDate: undefined, endDate: undefined })
+  assert.match(result.content[0].text, /Created sprint "Sprint 13" \(id 99, future\) on board 7/)
+  assert.match(result.content[0].text, /rapidView=7&view=planning/)
+})
+
+test('create_sprint: refuses a duplicate name among active/future sprints unless allow_duplicate', async () => {
+  let created = 0
+  const tools = setup({
+    client: {
+      ...SCRUM_BOARD,
+      listSprints: async () => [{ id: 5, name: 'sprint 13', state: 'future' }],
+      createSprint: async () => { created += 1; return NEW_SPRINT },
+    },
+  })
+  const refused = await tools.get('create_sprint').handler({ board_id: 7, name: 'Sprint 13' })
+  assert.equal(refused.isError, true)
+  assert.match(refused.content[0].text, /already has a future sprint named "sprint 13" \(id 5\)/)
+  assert.equal(created, 0)
+
+  const forced = await tools.get('create_sprint').handler({ board_id: 7, name: 'Sprint 13', allow_duplicate: true })
+  assert.equal(forced.isError, undefined)
+  assert.equal(created, 1)
+})
+
+test('create_sprint: refuses a Kanban board and creates nothing', async () => {
+  let created = false
+  const tools = setup({
+    client: {
+      getBoard: async () => ({ id: 3, name: 'Ops', type: 'kanban' }),
+      listSprints: async () => [],
+      createSprint: async () => { created = true; return NEW_SPRINT },
+    },
+  })
+  const result = await tools.get('create_sprint').handler({ board_id: 3, name: 'Sprint 1' })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /is a kanban board/)
+  assert.equal(created, false)
+})
+
+test('create_sprint: dates come together, must parse, and end after start', async () => {
+  let created = false
+  const tools = setup({
+    client: { ...SCRUM_BOARD, listSprints: async () => [], createSprint: async () => { created = true; return NEW_SPRINT } },
+  })
+  const start = '2026-10-06T09:00:00.000+02:00'
+  const end = '2026-10-20T17:00:00.000+02:00'
+  const onlyStart = await tools.get('create_sprint').handler({ board_id: 7, name: 'S', start_date: start })
+  assert.match(onlyStart.content[0].text, /together/)
+  const garbage = await tools.get('create_sprint').handler({ board_id: 7, name: 'S', start_date: 'next monday', end_date: end })
+  assert.match(garbage.content[0].text, /ISO 8601/)
+  const backwards = await tools.get('create_sprint').handler({ board_id: 7, name: 'S', start_date: end, end_date: start })
+  assert.match(backwards.content[0].text, /after start_date/)
+  assert.equal(created, false)
+
+  const ok = await tools.get('create_sprint').handler({ board_id: 7, name: 'S', start_date: start, end_date: end })
+  assert.equal(ok.isError, undefined)
+  assert.equal(created, true)
+})
+
+test('create_sprint: rejects a name over 30 characters before touching Jira', async () => {
+  let touched = false
+  const tools = setup({
+    client: {
+      getBoard: async () => { touched = true; return { id: 7, name: 'PROJ board', type: 'scrum' } },
+      listSprints: async () => [],
+      createSprint: async () => { touched = true; return NEW_SPRINT },
+    },
+  })
+  const tooLong = await tools.get('create_sprint').handler({ board_id: 7, name: 'x'.repeat(31) })
+  assert.equal(tooLong.isError, true)
+  assert.match(tooLong.content[0].text, /too long \(31 characters, Jira allows 30\)/)
+  assert.equal(touched, false)
+
+  const exact = await tools.get('create_sprint').handler({ board_id: 7, name: 'x'.repeat(30) })
+  assert.equal(exact.isError, undefined)
+})
+
+test('create_sprint: counts against the session write budget', async () => {
+  const tools = setup({
+    client: { ...SCRUM_BOARD, listSprints: async () => [], createSprint: async () => NEW_SPRINT },
+  })
+  for (let i = 0; i < CONFIG.writeBudget.total; i++) consumeWriteBudget(CONFIG, 'write')
+  const result = await tools.get('create_sprint').handler({ board_id: 7, name: 'S' })
+  assert.equal(result.isError, true)
+  assert.match(result.content[0].text, /write limit/)
 })
 
 // --- add_comment / transition ------------------------------------------------

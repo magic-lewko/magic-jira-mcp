@@ -500,3 +500,31 @@ export function addIssuesToEpic(config, epicKey, issueKeys) {
     method: 'POST', body: { issues: issueKeys }, what: `assign issues to epic ${epicKey}`,
   })
 }
+
+/**
+ * One Agile board: id, name, type ("scrum" or "kanban").
+ *
+ * @param {object} config
+ * @param {number} boardId
+ * @returns {Promise<{id: number, name: string, type: string}>}
+ */
+export function getBoard(config, boardId) {
+  return jiraFetch(config, `/rest/agile/1.0/board/${boardId}`, { what: `board ${boardId}` })
+}
+
+/**
+ * Create a future sprint on a Scrum board (Agile API, Jira answers 201 with
+ * the sprint: id, name, state "future"). Goal and dates are optional; dates
+ * are ISO 8601 date-time strings. Only the given fields are sent.
+ *
+ * @param {object} config
+ * @param {{boardId: number, name: string, goal?: string, startDate?: string, endDate?: string}} sprint
+ * @returns {Promise<{id: number, name: string, state: string}>}
+ */
+export function createSprint(config, { boardId, name, goal, startDate, endDate }) {
+  const body = { name, originBoardId: boardId }
+  if (goal) body.goal = goal
+  if (startDate) body.startDate = startDate
+  if (endDate) body.endDate = endDate
+  return jiraFetch(config, '/rest/agile/1.0/sprint', { method: 'POST', body, what: `create sprint "${name}"` })
+}

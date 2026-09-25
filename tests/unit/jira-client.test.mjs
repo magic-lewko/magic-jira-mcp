@@ -2,7 +2,7 @@ import { test, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  expandKeys, jiraFetch, searchIssues, getSprintIssues, listBoards, linkIssues, JiraError,
+  expandKeys, jiraFetch, searchIssues, getSprintIssues, listBoards, linkIssues, createSprint, JiraError,
 } from '../../plugins/jira-tools/src/jira-client.mjs'
 
 const CONFIG = { server: 'https://jira.example.pl', token: 'secret-token' }
@@ -153,5 +153,26 @@ test('linkIssues: `from` is the source — sent as inwardIssue (Jira Server sema
     type: { name: 'Blocks' },
     inwardIssue: { key: 'PROJ-1' },
     outwardIssue: { key: 'PROJ-2' },
+  })
+})
+
+// --- sprints ----------------------------------------------------------------
+
+test('createSprint: POSTs name + originBoardId, adds goal and dates only when given', async () => {
+  const calls = mockFetch([
+    { status: 201, body: { id: 99, name: 'Sprint 13', state: 'future' } },
+    { status: 201, body: { id: 100, name: 'Sprint 14', state: 'future' } },
+  ])
+  const sprint = await createSprint(CONFIG, { boardId: 7, name: 'Sprint 13' })
+  assert.equal(sprint.id, 99)
+  assert.equal(calls[0].url, 'https://jira.example.pl/rest/agile/1.0/sprint')
+  assert.equal(calls[0].init.method, 'POST')
+  assert.deepEqual(JSON.parse(calls[0].init.body), { name: 'Sprint 13', originBoardId: 7 })
+
+  const start = '2026-10-06T09:00:00.000+02:00'
+  const end = '2026-10-20T17:00:00.000+02:00'
+  await createSprint(CONFIG, { boardId: 7, name: 'Sprint 14', goal: 'Ship', startDate: start, endDate: end })
+  assert.deepEqual(JSON.parse(calls[1].init.body), {
+    name: 'Sprint 14', originBoardId: 7, goal: 'Ship', startDate: start, endDate: end,
   })
 })
