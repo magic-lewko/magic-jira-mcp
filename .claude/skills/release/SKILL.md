@@ -1,6 +1,6 @@
 ---
 name: release
-description: Ship a new jira-tools version from this repo. It bumps the version in all three files, rebuilds the bundle, runs the checks, commits on develop, promotes to uat and main, syncs GitLab, and writes a short release note. Use when the user wants to release, ship, or cut a new version, or says "release", "ship it", "cut a release", or "/release".
+description: Ship a new jira-tools version from this repo. It bumps the version in all three files, rebuilds the bundle, runs the checks, commits on develop, promotes to uat and main, writes a short release note, and posts the .mcpb bundle to Slack. Use when the user wants to release, ship, or cut a new version, or says "release", "ship it", "cut a release", or "/release".
 ---
 
 Release a new version of the jira-tools plugin. Follow every step in order. Never add Claude as a co-author. Never commit or push without the user's explicit go-ahead.
@@ -19,10 +19,10 @@ The version lives in three places. All three must hold the same value:
 
 ## Step 3. Rebuild the bundle
 
-The server is bundled from `src/` into `plugins/jira-tools/servers/jira-mcp.mjs`, so any change in `src/` needs a rebuild. Run:
+The server is bundled from `src/` into `plugins/jira-tools/servers/jira-mcp.mjs`, so any change in `src/` needs a rebuild. The same command also builds the Claude Desktop bundle `dist/jira-tools-X.Y.Z.mcpb`. Run:
 
 ```text
-npm run build
+npm run build:mcpb
 ```
 
 Then confirm the new version on the built bundle:
@@ -57,7 +57,7 @@ git commit -m "X.Y.Z: short summary"
 
 ## Step 7. Push GitHub and promote
 
-GitHub (`origin`) is the primary remote. Push develop, then fast-forward `uat` and `main`, then return to develop:
+GitHub (`origin`) is the only remote. Push develop, then fast-forward `uat` and `main`, then return to develop:
 
 ```text
 git push origin develop
@@ -66,19 +66,29 @@ git checkout main && git merge --ff-only develop && git push origin main
 git checkout develop
 ```
 
-## Step 8. Sync GitLab
-
-GitLab (`gitlab`) is the secondary remote. Its `main` is protected and has a separate history, so sync through a temporary branch. This stays a fast-forward, not a force push:
-
-```text
-git fetch gitlab
-git checkout -B gitlab-sync gitlab/main
-git merge develop -m "Merge X.Y.Z into gitlab-sync"
-git push gitlab gitlab-sync:main
-git checkout develop
-git branch -D gitlab-sync
-```
-
-## Step 9. Write a short release note
+## Step 8. Write a short release note
 
 Write a short summary of what changed. Keep it to a few bullets in plain language, no em-dashes. This note is for the team, so Polish is fine.
+
+## Step 9. Post the bundle to Slack
+
+Build the Slack message in Polish from the release note. Use Slack formatting (`*bold*`). It has these parts in this order:
+
+- A title line: the `<!here>` mention (Slack's API form of @here), then the bold "New version jira-tools X.Y.Z".
+- The release note bullets.
+- A bold "Claude Desktop:" label with "file attached", then the `{desktop_guide}` placeholder on the next line.
+- A bold "Claude Code:" label with the repository link `https://github.com/magic-lewko/magic-jira-mcp`, then the `{code_guide}` placeholder on the next line.
+
+Leave the placeholders as they are. The script fills them with the install guide links from `.env.local`. Preview the final message:
+
+```text
+npm run release:slack -- "<message>" --dry-run
+```
+
+Show the preview to the user. After the user approves it, post the `.mcpb` with the message to the team channel:
+
+```text
+npm run release:slack -- "<message>"
+```
+
+The script reads `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `SLACK_DESKTOP_GUIDE_URL`, and `SLACK_CODE_GUIDE_URL` from `.env.local`. On `not_in_channel`, ask the user to run `/invite @jira-tools-release` in the channel.
