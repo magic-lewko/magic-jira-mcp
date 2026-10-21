@@ -12,6 +12,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -83,7 +84,9 @@ const manifest = {
     mcp_config: {
       command: 'node',
       args: ['${__dirname}/server/jira-mcp.mjs'],
-      env: mcpJson.mcpServers.jira.env,
+      // JIRA_CLIENT tells the server it runs from the Desktop bundle, so
+      // get_version / download_update speak Desktop (file) not Claude Code (marketplace).
+      env: { ...mcpJson.mcpServers.jira.env, JIRA_CLIENT: 'desktop' },
     },
   },
   tools: [...readTools, ...writeTools].map((tool) => ({
@@ -118,3 +121,19 @@ for (const args of [['validate', join(stage, 'manifest.json')], ['pack', stage, 
   }
 }
 console.error(`[build-mcpb] wrote ${output}`)
+
+// Update feed (src/update.mjs reads it from the main branch): a fixed-name copy
+// of the bundle plus latest.json with version and checksum. Both are committed
+// with the release and promoted to main together with the version bump.
+const releases = join(root, 'releases')
+const bytes = readFileSync(output)
+const feed = {
+  version: plugin.version,
+  file: `${plugin.name}.mcpb`,
+  sha256: createHash('sha256').update(bytes).digest('hex'),
+  size: bytes.length,
+}
+mkdirSync(releases, { recursive: true })
+copyFileSync(output, join(releases, feed.file))
+writeFileSync(join(releases, 'latest.json'), `${JSON.stringify(feed, null, 2)}\n`)
+console.error(`[build-mcpb] published releases/${feed.file} + latest.json (${feed.version})`)

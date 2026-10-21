@@ -1,6 +1,6 @@
 # jira-tools
 
-Ask Claude about your self-hosted Jira instead of clicking around it. Examples: "show my tasks in PROJ", "sprint health for PROJ", "create a bug on iOS". One MCP server, two homes: Claude Code and Claude Desktop. 19 tools, 9 skills.
+Ask Claude about your self-hosted Jira instead of clicking around it. Examples: "show my tasks in PROJ", "sprint health for PROJ", "create a bug on iOS". One MCP server, two homes: Claude Code and Claude Desktop. 20 tools, 9 skills.
 
 Full tour: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md). Spec: [SPEC.md](SPEC.md).
 
@@ -31,7 +31,7 @@ Done when you see "Logged in as ...". Then ask: show my tasks in PROJ.
 
 ## Install in Claude Desktop
 
-Claude Desktop installs the tools from one file: `jira-tools-<version>.mcpb`. Get the file from the release page or from the maintainer.
+Claude Desktop installs the tools from one file: `jira-tools-<version>.mcpb`. Get the file from the release post on Slack, or download it from this link: https://github.com/magic-lewko/magic-jira-mcp/raw/main/releases/jira-tools.mcpb
 
 1. Double-click the file. Claude Desktop opens the install window.
 2. Fill in your Jira URL and Personal Access Token. Click Install.
@@ -48,9 +48,9 @@ To build the file yourself: `npm run build:mcpb`. The result lands in `dist/`.
 New versions land on `main`.
 
 - Claude Code: `/plugin marketplace update magic-jira-mcp`, then `/plugin install jira-tools@magic-jira-mcp`, then `/jira-tools:jira-update`.
-- Claude Desktop: install the new `.mcpb` file. It replaces the old version.
+- Claude Desktop: ask "update jira-tools". Claude saves the newest `.mcpb` file in your Downloads folder. Double-click the file. It replaces the old version.
 
-Ask "what jira-tools version?" to see which version is connected.
+Ask "what jira-tools version?" to see which version is connected. The answer also tells you if a newer version exists.
 
 ## What it does
 

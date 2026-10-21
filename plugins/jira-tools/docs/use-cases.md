@@ -60,6 +60,7 @@ The plugin adds the `ai-generated` label to each ticket it creates. The plugin a
 | 401, or the token expired | Create a new token. Open the avatar menu, then Personal Access Tokens. Configure the plugin again. |
 | a timeout | Turn on the VPN. |
 | the write tools are missing | Update the plugin. Then run `/reload-plugins`. |
+| a new version is out | Claude Desktop: say "update jira-tools". Then double-click the file in Downloads. Claude Code: run `/plugin marketplace update magic-jira-mcp`. |
 | the report shows the wrong status order | Run `/jira-tools:jira-config PROJ`. Select the correct board. |
 
 Do you have an idea for the plugin? Run `/jira-tools:feedback`. It asks a few questions. Then it writes a Slack message.

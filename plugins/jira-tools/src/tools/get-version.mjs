@@ -2,7 +2,9 @@
  * Version / health check: which plugin version is actually connected, and is a
  * Jira config loaded? Answers even without a config (alwaysAvailable) so it can
  * settle "old cache vs new version" in any client. Never exposes the token.
+ * Ends with the update-feed line (see update.mjs): newer version or up to date.
  */
+import { updateStatusLine } from '../update.mjs'
 import { VERSION } from '../version.mjs'
 import { writeBudgetStatus } from '../write-guard.mjs'
 
@@ -14,7 +16,8 @@ export default {
     title: 'Get plugin version',
     description: 'Report the running jira-tools MCP server version plus a quick health check: '
       + 'Node version, whether a Jira config is loaded and which server it points at. '
-      + 'Use it to confirm exactly which plugin version is connected in this session.',
+      + 'Use it to confirm exactly which plugin version is connected in this session, '
+      + 'and whether a newer release is available.',
     inputSchema: {},
   },
 
@@ -45,6 +48,7 @@ export default {
         + 'or set the Jira URL and token in the Desktop extension or plugin settings.',
       )
     }
+    lines.push(await updateStatusLine())
     return lines.join('\n')
   },
 }

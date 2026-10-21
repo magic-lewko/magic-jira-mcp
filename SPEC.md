@@ -73,6 +73,8 @@ Transport: **stdio**. Server name: `jira`. All tools return **concise text**
 | `get_issue_changelog` | `key`                                                                                                 | History of status changes with dates (needed for "what changed status to done yesterday" and "no movement for 3 days").                                                                        |
 | `get_current_user`    | —                                                                                                     | Verifies the connection and token: logged-in user (`/rest/api/2/myself`). The final test in `/jira-setup` ("Logged in as X").                                                |
 | `get_project_config`  | `project`, `board_id?`                                                                                | Project metadata for the profile (§5.1): boards, columns→statuses, components, issue types, auto-detection of the Epic Link field. Backend for the `/jira-config` skill.                              |
+| `get_version`         | —                                                                                                     | Running server version + health (Node, config loaded, write budget) and the update-feed line (§4.5): newer release available / up to date / check failed. Works without a config. |
+| `download_update`     | `force?`                                                                                              | Downloads the newest Claude Desktop bundle: reads `releases/latest.json` from `main`, saves `releases/jira-tools.mcpb` as `~/Downloads/jira-tools-<version>.mcpb` after a SHA-256 check and explains the double-click install (§4.5). Skips the download when already on the latest unless `force=true`. In Claude Code (no `JIRA_CLIENT=desktop`) it returns the marketplace update commands instead. Works without a config. |
 
 ### 4.2 Write (phase 2 — behind a flag)
 
@@ -139,6 +141,24 @@ bullet and numbered lists, checklists (`- [ ]` → `(x)`, `- [x]` → `(/)`), ta
 blockquotes and horizontal rules. It is deliberately the subset the skills emit, not a
 general converter. A caller that already holds wiki markup passes
 `description_format="wiki"` to skip the conversion.
+
+### 4.5 Update channel (Claude Desktop bundle)
+
+A sideloaded `.mcpb` never updates itself (only extensions from Anthropic's directory do, and
+the MCPB manifest has no update field), so the server carries its own update check:
+
+- `npm run build:mcpb` publishes `releases/jira-tools.mcpb` (fixed name) and `releases/latest.json`
+  (`{version, file, sha256, size}`). Both are committed with the release and promoted to `main`.
+- `src/update.mjs` reads `https://raw.githubusercontent.com/magic-lewko/magic-jira-mcp/main/releases/`.
+  `get_version` ends with one line: newer release available (plus how to get it), up to date, ahead
+  of the release, or why the check failed. 3 s timeout, never throws, offline-safe.
+  `JIRA_NO_UPDATE_CHECK=1` silences it (unit tests set it).
+- `download_update` fetches the bundle (60 s timeout, 25 MB cap), verifies the SHA-256 from the feed
+  and only then writes `~/Downloads/jira-tools-<version>.mcpb` (`JIRA_DOWNLOAD_DIR` overrides the
+  folder, temp folder when Downloads does not exist). Installing stays a manual double-click; the tool
+  never touches Claude Desktop's extension folder.
+- The bundle manifest sets `JIRA_CLIENT=desktop`. Without it (Claude Code plugin) both tools point to
+  `/plugin marketplace update magic-jira-mcp` + `/plugin install jira-tools@magic-jira-mcp` + `/jira-update`.
 
 ## 5. Configuration
 

@@ -22656,8 +22656,89 @@ var get_project_config_default = {
   }
 };
 
+// plugins/jira-tools/src/update.mjs
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir as homedir2, tmpdir } from "node:os";
+import { join as join2 } from "node:path";
+
 // plugins/jira-tools/src/version.mjs
-var VERSION = "0.7.0";
+var VERSION = "0.8.1";
+
+// plugins/jira-tools/src/update.mjs
+var RELEASE_BASE = "https://raw.githubusercontent.com/magic-lewko/magic-jira-mcp/main/releases/";
+var MARKETPLACE = "magic-jira-mcp";
+var MAX_BUNDLE_BYTES = 25 * 1024 * 1024;
+function compareVersions(a, b) {
+  const pa = String(a).split(".").map(Number);
+  const pb = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff) return diff < 0 ? -1 : 1;
+  }
+  return 0;
+}
+function isDesktop(env = process.env) {
+  return env.JIRA_CLIENT === "desktop";
+}
+function updateHint(env = process.env) {
+  return isDesktop(env) ? "Call download_update to get the new .mcpb file." : `Run /plugin marketplace update ${MARKETPLACE}, then /plugin install jira-tools@${MARKETPLACE}, then /jira-tools:jira-update.`;
+}
+async function fetchLatest({ timeoutMs = 5e3 } = {}) {
+  let res;
+  try {
+    res = await fetch(`${RELEASE_BASE}latest.json`, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    const why = err?.name === "TimeoutError" ? "timed out" : "no connection";
+    throw new JiraError(`Update check failed: ${why} (${RELEASE_BASE}latest.json).`);
+  }
+  if (res.status === 404) throw new JiraError("Update check: no release published yet.");
+  if (!res.ok) throw new JiraError(`Update check failed: HTTP ${res.status} for latest.json.`);
+  const latest = await res.json().catch(() => null);
+  if (!latest?.version || !latest?.file || !latest?.sha256) {
+    throw new JiraError("Update check failed: latest.json is malformed.");
+  }
+  return latest;
+}
+function downloadDir(env = process.env) {
+  if (env.JIRA_DOWNLOAD_DIR) return env.JIRA_DOWNLOAD_DIR;
+  const downloads = join2(homedir2(), "Downloads");
+  return existsSync(downloads) ? downloads : tmpdir();
+}
+async function downloadBundle(latest, dir = downloadDir(), { timeoutMs = 6e4 } = {}) {
+  let res;
+  try {
+    res = await fetch(`${RELEASE_BASE}${latest.file}`, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    throw new JiraError(`Download failed: ${err?.name === "TimeoutError" ? "timed out" : "no connection"}.`);
+  }
+  if (!res.ok) throw new JiraError(`Download failed: HTTP ${res.status} for ${latest.file}.`);
+  const declared = Number(res.headers.get("content-length")) || 0;
+  if (declared > MAX_BUNDLE_BYTES) throw new JiraError(`Download refused: ${latest.file} is larger than 25 MB.`);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  if (bytes.length > MAX_BUNDLE_BYTES) throw new JiraError(`Download refused: ${latest.file} is larger than 25 MB.`);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  if (sha256 !== String(latest.sha256).toLowerCase()) {
+    throw new JiraError("Download failed: checksum mismatch, the file was not saved. Try again in a few minutes.");
+  }
+  mkdirSync(dir, { recursive: true });
+  const path = join2(dir, `jira-tools-${latest.version}.mcpb`);
+  writeFileSync(path, bytes);
+  return path;
+}
+async function updateStatusLine({ current = VERSION, env = process.env } = {}) {
+  if (env.JIRA_NO_UPDATE_CHECK === "1") return "Update check: disabled (JIRA_NO_UPDATE_CHECK=1).";
+  let latest;
+  try {
+    latest = await fetchLatest({ timeoutMs: 3e3 });
+  } catch (err) {
+    return err.message;
+  }
+  const cmp = compareVersions(current, latest.version);
+  if (cmp === 0) return `Update check: up to date (${latest.version} is the latest release).`;
+  if (cmp > 0) return `Update check: you run ${current}, ahead of the latest release ${latest.version}.`;
+  return `Update check: version ${latest.version} is available (you run ${current}). ${updateHint(env)}`;
+}
 
 // plugins/jira-tools/src/tools/get-version.mjs
 var get_version_default = {
@@ -22666,7 +22747,7 @@ var get_version_default = {
   alwaysAvailable: true,
   config: {
     title: "Get plugin version",
-    description: "Report the running jira-tools MCP server version plus a quick health check: Node version, whether a Jira config is loaded and which server it points at. Use it to confirm exactly which plugin version is connected in this session.",
+    description: "Report the running jira-tools MCP server version plus a quick health check: Node version, whether a Jira config is loaded and which server it points at. Use it to confirm exactly which plugin version is connected in this session, and whether a newer release is available.",
     inputSchema: {}
   },
   /**
@@ -22694,7 +22775,45 @@ var get_version_default = {
         "Config: NOT loaded \u2014 run /jira-tools:jira-setup, or set the Jira URL and token in the Desktop extension or plugin settings."
       );
     }
+    lines.push(await updateStatusLine());
     return lines.join("\n");
+  }
+};
+
+// plugins/jira-tools/src/tools/download-update.mjs
+var download_update_default = {
+  name: "download_update",
+  // Works without a Jira config — updating is exactly what a broken setup needs.
+  alwaysAvailable: true,
+  config: {
+    title: "Download the newest version",
+    description: "Download the newest jira-tools version: fetches the latest Claude Desktop bundle (.mcpb) into the Downloads folder and explains the install (double-click the file). Use when the user asks to update, upgrade, or get the latest version of jira-tools. In Claude Code it reports the plugin update commands instead.",
+    inputSchema: {
+      force: external_exports.boolean().optional().describe("Download the file even when the running version is already the latest, or when running in Claude Code.")
+    }
+  },
+  /**
+   * @param {{force?: boolean}} args
+   * @returns {Promise<string>}
+   */
+  async run({ force = false } = {}) {
+    const latest = await fetchLatest();
+    const cmp = compareVersions(VERSION, latest.version);
+    const status = cmp < 0 ? `Latest release: ${latest.version}, you run ${VERSION}.` : `You already run ${VERSION}${cmp > 0 ? `, ahead of the latest release ${latest.version}` : ", the latest release"}.`;
+    if (!isDesktop() && !force) {
+      return `${status} This is the Claude Code plugin, so no file is needed. ${updateHint()}
+Pass force=true to download the Claude Desktop .mcpb file anyway.`;
+    }
+    if (cmp >= 0 && !force) {
+      return `${status} Nothing downloaded. Pass force=true to download the file anyway.`;
+    }
+    const path = await downloadBundle(latest, downloadDir());
+    return [
+      `${status} Downloaded jira-tools ${latest.version}.`,
+      `File: ${path}`,
+      "Install: double-click the file. Claude Desktop replaces the current version and restarts the tools.",
+      "If nothing happens: Settings > Extensions > Advanced settings > Install Extension, then pick the file."
+    ].join("\n");
   }
 };
 
@@ -22709,7 +22828,8 @@ var readTools = [
   get_issue_changelog_default,
   get_current_user_default,
   get_project_config_default,
-  get_version_default
+  get_version_default,
+  download_update_default
 ];
 var writeTools = [
   create_issue_default,

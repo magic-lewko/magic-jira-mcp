@@ -19,7 +19,7 @@ The version lives in three places. All three must hold the same value:
 
 ## Step 3. Rebuild the bundle
 
-The server is bundled from `src/` into `plugins/jira-tools/servers/jira-mcp.mjs`, so any change in `src/` needs a rebuild. The same command also builds the Claude Desktop bundle `dist/jira-tools-X.Y.Z.mcpb`. Run:
+The server is bundled from `src/` into `plugins/jira-tools/servers/jira-mcp.mjs`, so any change in `src/` needs a rebuild. The same command also builds the Claude Desktop bundle `dist/jira-tools-X.Y.Z.mcpb` and refreshes the update feed `releases/jira-tools.mcpb` + `releases/latest.json` (the server reads it from `main`: `get_version` reports a newer release, `download_update` saves the file). Commit the feed together with the version bump. Run:
 
 ```text
 npm run build:mcpb
@@ -76,7 +76,7 @@ Build the Slack message in Polish from the release note. Use Slack formatting (`
 
 - A title line: the `<!here>` mention (Slack's API form of @here), then the bold "New version jira-tools X.Y.Z".
 - The release note bullets.
-- A bold "Claude Desktop:" label with "file attached", then the `{desktop_guide}` placeholder on the next line.
+- A bold "Claude Desktop:" label with "file attached, or ask Claude: update jira-tools", then the `{desktop_guide}` placeholder on the next line.
 - A bold "Claude Code:" label with the repository link `https://github.com/magic-lewko/magic-jira-mcp`, then the `{code_guide}` placeholder on the next line.
 
 Leave the placeholders as they are. The script fills them with the install guide links from `.env.local`. Preview the final message:

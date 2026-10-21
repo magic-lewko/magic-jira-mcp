@@ -14,6 +14,9 @@ const fixture = JSON.parse(
 
 const CONFIG = { server: 'https://jira.example.pl', token: 't', projects: {} }
 
+// get_version would otherwise hit the real update feed (network) in unit tests.
+process.env.JIRA_NO_UPDATE_CHECK = '1'
+
 /** Minimal server stub capturing registered tools. */
 function stubServer() {
   const tools = new Map()
@@ -43,7 +46,7 @@ test('all read tools are registered', () => {
   const expected = [
     'search_issues', 'get_issue', 'list_boards', 'get_active_sprint', 'get_sprint_issues',
     'get_epic_status', 'get_issue_changelog', 'get_current_user', 'get_project_config',
-    'get_version',
+    'get_version', 'download_update',
   ]
   assert.deepEqual([...tools.keys()].sort(), expected.sort())
   assert.equal(readTools.length, expected.length)

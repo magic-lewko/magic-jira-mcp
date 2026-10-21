@@ -25,6 +25,7 @@ import getIssueChangelog from './get-issue-changelog.mjs'
 import getCurrentUser from './get-current-user.mjs'
 import getProjectConfig from './get-project-config.mjs'
 import getVersion from './get-version.mjs'
+import downloadUpdate from './download-update.mjs'
 
 /** Read-only tools. */
 export const readTools = [
@@ -38,6 +39,7 @@ export const readTools = [
   getCurrentUser,
   getProjectConfig,
   getVersion,
+  downloadUpdate,
 ]
 
 /** Write tools — guarded in code by the session budget and the duplicate guard. */
