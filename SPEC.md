@@ -39,11 +39,13 @@ Two audiences:
 │       │   ├── jira-client.mjs   # HTTP layer: auth, fetch, pagination, errors
 │       │   ├── config.mjs        # config loading (env → file → error with instructions)
 │       │   ├── format.mjs        # compact formatting of tickets to text
+│       │   ├── zephyr.mjs        # shared Zephyr logic (project/version, Test type, statuses)
+│       │   ├── project-rules.mjs # shared project rules stored in Jira (§5.2)
 │       │   └── tools/            # one file = one MCP tool
 │       ├── skills/               # one directory = one slash command
 │       │   ├── jira-setup/  jira-config/  jira-update/  get-tasks/
 │       │   ├── sprint-health/  check-stories/  find-bug/
-│       │   └── create-task/  feedback/
+│       │   └── create-task/  feedback/  test-cases/  project-rules/
 │       ├── docs/use-cases.md     # prompt cheat sheet (STE)
 │       └── README.md             # short pointer to the main README
 ├── scripts/
@@ -73,6 +75,7 @@ Transport: **stdio**. Server name: `jira`. All tools return **concise text**
 | `get_issue_changelog` | `key`                                                                                                 | History of status changes with dates (needed for "what changed status to done yesterday" and "no movement for 3 days").                                                                        |
 | `get_current_user`    | —                                                                                                     | Verifies the connection and token: logged-in user (`/rest/api/2/myself`). The final test in `/jira-setup` ("Logged in as X").                                                |
 | `get_project_config`  | `project`, `board_id?`                                                                                | Project metadata for the profile (§5.1): boards, columns→statuses, components, issue types, auto-detection of the Epic Link field. Backend for the `/jira-config` skill.                              |
+| `get_project_rules`   | `project`                                                                                             | The project's shared rules stored in Jira (§5.2): "assignee → component" per issue type, plus who changed them last. Used by the `/create-task` preview to show the component a rule adds. |
 | `get_version`         | —                                                                                                     | Running server version + health (Node, config loaded, write budget) and the update-feed line (§4.5): newer release available / up to date / check failed. Works without a config. |
 | `download_update`     | `force?`                                                                                              | Downloads the newest Claude Desktop bundle: reads `releases/latest.json` from `main`, saves `releases/jira-tools.mcpb` as `~/Downloads/jira-tools-<version>.mcpb` after a SHA-256 check and explains the double-click install (§4.5). Skips the download when already on the latest unless `force=true`. In Claude Code (no `JIRA_CLIENT=desktop`) it returns the marketplace update commands instead. Works without a config. |
 
@@ -80,7 +83,7 @@ Transport: **stdio**. Server name: `jira`. All tools return **concise text**
 
 | Tool               | Parameters                                                                                              | Description                                                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `create_issue`     | `project`, `issue_type` (role `epic/story/task/subtask/bug` or exact name), `summary`, `description` (Markdown → wiki), `description_format?`, `components[]`, `labels[]`, `assignee?`, `epic_key?`, `epic_name?`, `parent?`, `story_points?`, `sprint_id?`, `allow_duplicate?` | Creates ONE ticket. Returns key + URL. A role resolves to the project's own type name via the profile's `issueTypeRoles`. `parent` is required for a sub-task type (validated: the type must be a sub-task type and the parent must not be one). `epic_name` defaults to the summary on an epic. Story Points resolve by field name only. `sprint_id` (from `get_active_sprint`) places the ticket in the sprint — without it, it lands in the backlog; custom fields come from the profile or auto-detection. |
+| `create_issue`     | `project`, `issue_type` (role `epic/story/task/subtask/bug` or exact name), `summary`, `description` (Markdown → wiki), `description_format?`, `components[]`, `labels[]`, `assignee?`, `epic_key?`, `epic_name?`, `parent?`, `story_points?`, `sprint_id?`, `backlog?`, `steps_to_reproduce[]?`, `actual_result?`, `expected_result?`, `custom_template?`, `allow_duplicate?` | Creates ONE ticket. Returns key + URL. A role resolves to the project's own type name via the profile's `issueTypeRoles`. `parent` is required for a sub-task type (validated: the type must be a sub-task type and the parent must not be one). `epic_name` defaults to the summary on an epic. Story Points resolve by field name only. `sprint_id` (from `get_active_sprint`) places the ticket in the sprint, `backlog=true` leaves it in the backlog — one of them is required (safeguard 5); custom fields come from the profile or auto-detection. A bug follows the standard bug template (safeguard 6): the server writes the description from `steps_to_reproduce`, `actual_result` and `expected_result`, and a `description` lands below it. |
 | `create_issues`    | `project`, `items[]` (each: the `create_issue` fields minus `project`; max 50)                            | Creates up to 50 tickets in ONE request (`POST /rest/api/2/issue/bulk`) — the sanctioned path for a breakdown. Same per-item rules as `create_issue`. The whole batch must fit the session budget or nothing is created; every item passes the duplicate guard (against Jira and within the batch). Parents must exist before children: epic → stories → sub-tasks in a second call. Returns keys and per-item errors. |
 | `add_comment`      | `key`, `body`                                                                                           | Adds a comment.                                                                                                         |
 | `transition_issue` | `key`, `transition_name`                                                                                | Status change (first fetch the available transitions, match by name case-insensitively, and if none match — list the available ones). |
@@ -89,6 +92,7 @@ Transport: **stdio**. Server name: `jira`. All tools return **concise text**
 | `link_issues`      | `from`, `to[]` (ranges, max 20), `type?` (default "Relates")                                            | Creates links between issues (POST `/rest/api/2/issueLink`). `from` is the source of the link: for "Blocks", from blocks each key in `to`. Note Jira's inverted field names — the source goes into `inwardIssue`, the target into `outwardIssue` (verified on Jira Server 8.21.0). The type is matched case-insensitively to the instance's types; if none match — a list of available ones. `create-task` proposes linking the per-platform tickets of a single story. |
 | `assign_to_epic`   | `epic_key`, `keys[]` (ranges `PROJ-98..111`, max 20)                                                    | Attaches existing tasks to an epic (Agile API). Analyst use case: "stories from a release without an epic → attach them under the epic". Each task counts against the session budget. |
 | `create_sprint`    | `board_id`, `name` (max 30 chars, Jira limit), `goal?`, `start_date?` + `end_date?` (ISO 8601 date-time, together), `allow_duplicate?` | Creates ONE future sprint on a Scrum board (`POST /rest/agile/1.0/sprint`) — it lands in the backlog; starting it stays a manual step in Jira. Returns the sprint id for `sprint_id` in `create_issue`/`update_issue`. Refuses Kanban boards. Duplicate guard: an active or future sprint with the same name (case-insensitive) on the board blocks creation unless `allow_duplicate=true` after explicit user confirmation. Counts against the session budget. Needs the Manage Sprints permission. |
+| `set_project_rules` | `project`, `component_rules[]` (max 30; each: `component`, `assignees[]` (usernames or names, max 30), `issue_types?` (roles or names; omit = every type)), `dry_run?` | REPLACES the "assignee → component" rules of the project, stored in Jira as the project property `jira-tools` (§5.2). Every component and issue type must exist in the project, and every person must match exactly one active user (an exact username wins, otherwise the user search must return one hit). One problem → nothing is saved, all problems listed. `dry_run=true` checks everything and saves nothing (the preview). Keeps the other keys of the property and records `updatedBy`/`updatedAt`. Needs the Administer Projects permission (a 403 gives a clear message). Counts against the session budget. |
 
 **Write safety principle:** there is no "write mode" — all tools (read and write)
 are always registered, and writing works by default. The safeguards protect against an AI mistake,
@@ -117,10 +121,44 @@ will be written before configuration.
    session budget (point 2), not this guard.
 4. **Mandatory dry-run in `/create-task`** — a full preview and confirmation before each
    creation; plus Claude Code's own permission prompts on every tool call.
+5. **The user chooses the sprint** — `create_issue` and every `create_issues` item need
+   `sprint_id` (the user chose the active sprint) or `backlog=true` (the user chose the backlog);
+   both at once is a contradiction. Epics and sub-tasks are exempt (a sub-task follows its
+   parent). Without a choice the tool refuses before any request and tells the agent to ask:
+   the agent must never pick the sprint for the user. `/create-task` asks it in the
+   confirmation dialog, with the name of the active sprint.
+6. **Standard bug template** — a bug (the `bug` role, the profile's mapped bug type, or a type
+   name with "bug") needs a title `[label] title` and at least one of `steps_to_reproduce`,
+   `actual_result`, `expected_result`. The server writes the description in one fixed layout:
+   bold headers, a blank line before each section, the steps as a numbered list, and
+   `(to be filled in)` for a skipped section:
+
+   ```
+   *Steps to reproduce:*
+   # Open the profile page
+   # Click Save
+
+   *Actual result:*
+   Nothing happens
+
+   *Expected result:*
+   The new name is saved
+   ```
+
+   `custom_template=true` turns this off, only when the user explicitly asked for another
+   template; the `description` is then used as written. In `create_issues` the rails 5 and 6
+   are checked for every item first: one refused item stops the whole batch before any request.
 
 **AI content marking (transparency, always on):** `create_issue` adds, in code, the
 label `ai-generated` (filterable: `labels = ai-generated`), and `add_comment` appends
 a fixed signature `_(ai-generated · jira-tools)_` — Jira comments are not labeled.
+
+**Shared project rules (§5.2, applied in code):** when `create_issue`, `create_issues`,
+`create_test_cases` or `update_issue` (assignee change) sets an assignee, the tool reads the project's
+rules and adds the matching component. Rules only add: given or current components stay, nothing is
+removed, and the result names the added component ("added by the project rule"). The rules are read
+only when an assignee is set (one read per call). A failed read never blocks the write: the tool writes
+without the rule component and says so.
 
 ### 4.3 Common requirements
 
@@ -159,6 +197,34 @@ the MCPB manifest has no update field), so the server carries its own update che
   never touches Claude Desktop's extension folder.
 - The bundle manifest sets `JIRA_CLIENT=desktop`. Without it (Claude Code plugin) both tools point to
   `/plugin marketplace update magic-jira-mcp` + `/plugin install jira-tools@magic-jira-mcp` + `/jira-update`.
+
+### 4.6 Zephyr Squad Server (test management)
+
+Teams that keep test cases in Zephyr Squad Server (the Jira Server plugin `com.thed.zephyr.je`) use the
+same server and the same Bearer PAT: the Zephyr REST API lives under `{JIRA_SERVER}/rest/zapi/latest/`
+and goes through `jiraFetch` like every other call. Zephyr sometimes reports a failure with HTTP 200 and an
+`errorDesc`/`errorId: "ERROR"` or `error` body; the client turns that into a normal error. A test case is a
+Jira issue of the Zephyr type "Test" (found by name, else by the Zephyr description of the type); a test
+cycle is a test run inside a project version (`-1` = "Unscheduled"); an execution is one test placed in a
+cycle (optionally in a folder of the cycle) with a status.
+
+Read:
+
+| Tool                     | Parameters                                   | Description |
+| ------------------------ | -------------------------------------------- | ----------- |
+| `list_test_cycles`       | `project`, `version?`, `cycle_id?`           | Cycles of a project (all versions, or one version by name), newest first: id, name, version, environment, build, dates, executed/total and status counts (Zephyr fills the totals only with `expand=executionSummaries`; folders included). With `cycle_id`: status counts from a ZQL read of all its executions (cap 2000) and per-folder progress with folder ids. |
+| `search_test_executions` | `zql`, `max_results?` (default 50, max 500)  | ZQL search (`/zql/executeSearch`, paged by absolute `offset`): one line per execution — execution id, status, test key + title, cycle / folder, version, executed by + date, defects, comment — plus status counts and the truncation note `(showing X of Y — narrow the ZQL or raise max_results)`. |
+| `get_test_case`          | `key`                                        | One test: meta, description (capped at 4000 chars), all steps (action / test data / expected result) and its last 20 executions. Refuses an issue that is not a Zephyr test. |
+
+Write (same rails as §4.2: session budget, duplicate guard, AI marking):
+
+| Tool                   | Parameters                                                                                       | Description |
+| ---------------------- | ------------------------------------------------------------------------------------------------ | ----------- |
+| `create_test_cases`    | `project`, `items[]` (1–25; each: `summary`, `description?` (Markdown → wiki), `description_format?`, `steps[]?` (max 30: `step`, `data?`, `result?`), `components?`, `labels?`, `assignee?`, `allow_duplicate?`) | Creates the tests in ONE `/rest/api/2/issue/bulk` request through the shared issue builder (so the `ai-generated` label is added in code), then posts each test's steps (`POST /teststep/{issueId}`) in order. The whole batch — tests plus steps — must fit the session budget or nothing is created; every item passes the duplicate guard (Jira + within the batch). A failing step stops that test's steps and is reported with the number of steps added. Refuses a project without the Zephyr Test type. |
+| `add_test_steps`       | `key`, `steps[]` (1–30)                                                                          | Appends steps to ONE existing test. Refuses other issue types. Each step counts against the budget. |
+| `create_test_cycle`    | `project`, `name`, `version?` (default "Unscheduled"), `description?`, `build?`, `environment?`, `start_date?`, `end_date?` (YYYY-MM-DD → Zephyr's `d/MMM/yy`), `allow_duplicate?` | Creates ONE cycle (`POST /cycle`) and returns its id. Duplicate guard: a cycle with the same name (case-insensitive) in the same version blocks creation unless `allow_duplicate=true` after explicit user confirmation. The description always ends with the AI signature. |
+| `add_tests_to_cycle`   | `cycle_id`, `keys[]` (ranges, max 50), `folder_id?`                                              | Puts tests into a cycle (or one of its folders) with one synchronous `POST /execution` per test, so every test gets its execution id back (the async `addTestsToCycle` job gives none). All keys are checked first: nothing is added when a key is unknown, not a Zephyr test, or from another project than the cycle. Tests already in the same cycle and folder are skipped, not duplicated. Each added test counts against the budget. |
+| `set_execution_status` | `execution_ids[]` (1–50), `status`, `comment?`                                                   | Sets ONE status (matched case-insensitively against `/util/testExecutionStatus`, custom statuses included) on each execution (`PUT /execution/{id}/execute`, numeric status). A given comment replaces the execution comment and gets the AI signature; without a comment the existing comment stays untouched (an execution has a single comment field, so the signature is never written on its own). Each execution counts against the budget. |
 
 ## 5. Configuration
 
@@ -201,7 +267,6 @@ status and field names:
       "platforms": ["iOS", "Android", "Web", "Backend"],
       "titleConvention": "[<Platform>] <title>",
       "taskTemplate": {
-        "bug": "Steps to reproduce:\n1. …\n\nExpected:\n…\n\nActual:\n…",
         "story": "Business context:\n…\n\nAcceptance criteria:\n- …",
         "task": "Context:\n…\n\nScope:\n…\n\nDefinition of Done:\n- …"
       },
@@ -216,6 +281,32 @@ When there is no profile, the default status list applies (a template, to be ove
 `To Do`, `To Fix`, `In Progress`, `Code Review`, `Dev Done`, `On Hold`, `Ready for QA`,
 `QA`, `Done`. An additional fallback for unusual names: Jira's built-in `statusCategory`
 (`new` / `indeterminate` / `done`).
+
+### 5.2 Shared project rules (in Jira, per project)
+
+Some conventions belong to the project, not to one user: "bugs assigned to the frontend developers
+get the Frontend component". They are set once at the start of a project and again when a person
+joins or leaves — usually by the tester or the PM, in plain words through `/project-rules`. They are
+stored **in Jira**, as a project property (`/rest/api/2/project/{key}/properties/jira-tools`), so
+everyone on the project gets the same rules without editing a local config, and no name enters the repo.
+Reading needs only Browse Projects; saving needs Administer Projects. Jira has no screen for project
+properties: they are read and changed only through jira-tools (`get_project_rules`, `set_project_rules`).
+
+```json
+{
+  "componentRules": [
+    { "component": "Frontend", "assignees": ["anowak", "bkowal"], "issueTypes": ["Bug"] },
+    { "component": "Mobile", "assignees": ["dzielinski"] }
+  ],
+  "updatedBy": "pm.user",
+  "updatedAt": "2026-11-25T10:00:00.000Z"
+}
+```
+
+`assignees` are Jira usernames, `issueTypes` are the project's type names (absent = every type). Matching
+is case-insensitive. A person in two rules gets both components. A value that does not match this schema
+is ignored as a whole (never applied half-way) and reported. Limit: only jira-tools applies the rules —
+an assignment made by hand in Jira adds no component.
 
 ## 6. Skills (slash commands)
 
@@ -264,11 +355,27 @@ specific, since auto-invocation by the model depends on it).
 - **`/feedback [description]`** — a mini-interview about an idea/problem with the plugin (what, why, how it hurts,
   example) → a ready-made message to paste into Slack for the plugin maintainers; optionally
   a ticket via `create_issue` (full dry-run, no exceptions). The skill sends nothing by itself.
-**Golden rule of write skills** (`/create-task`, `/feedback`): the agent **structures what the
+- **`/test-cases [story key | description]`** — Zephyr test management (§4.6): drafts test cases
+  from a story's acceptance criteria or the user's words (expected results only from what was
+  specified), checks existing tests first, shows a **mandatory dry-run** (one table of steps per test),
+  then ONE `create_test_cases` call, optional `link_issues` to the story, and the cycle part
+  (`create_test_cycle` / `add_tests_to_cycle`). Recording results maps the user's report to execution
+  ids via ZQL, previews the status changes and calls `set_execution_status` once per status.
+- **`/project-rules [project]`** — saves or shows the shared project rules (§5.2) from plain words, e.g.
+  "if a bug is assigned to Nowak or Kowalski, add the Frontend component". Reads the current rules,
+  merges the change (a person joins or leaves, a new rule), previews the FULL list with
+  `set_project_rules dry_run=true` (people resolved to usernames, ambiguous names asked back), and saves
+  only after confirmation.
+**Golden rule of write skills** (`/create-task`, `/feedback`, `/test-cases`): the agent **structures what the
 user provided and asks about gaps — it never invents content**. An empty template section is a
 signal to ask a question (and to gently push), not to fill it with a guess;
 a deliberately omitted section gets a literal `(to be filled in)`. The template exists so
 as to force the user to think, not to give the agent room to hallucinate.
+
+Bugs use the standard bug template built into the server (§4.2 safeguard 6): `[label] title`,
+**Steps to reproduce**, **Actual result**, **Expected result**. `/create-task` uses it for every bug
+without asking. A `taskTemplate.bug` in the profile is only an alternative, used when the user asks
+for another template (`custom_template=true`).
 
 Description templates (`taskTemplate` per type) are configured by `/jira-config` in three ways:
 **import from designated reference tickets** (recommended — e.g. `BUG - PROJ-99, TASK - PROJ-100`;
@@ -279,7 +386,9 @@ pasted template, or the skill's own proposal.
   title, description, acceptance criteria (in the language from the config), a component per platform
   (iOS/Android/Web/Backend → separate tickets). **MANDATORY dry-run:** first list
   all tickets to be created as a preview, wait for the user's confirmation,
-  and only then call `create_issue`.
+  and only then call `create_issue`. The confirmation always asks "active sprint «name» or backlog?"
+  (the name comes from `get_active_sprint`), and a bug always uses the standard bug template
+  (§4.2 safeguards 5 and 6).
 
 ## 7. Implementation rules (quality)
 
@@ -302,7 +411,15 @@ Mock `globalThis.fetch`. Cover:
 - error mapping (401/404/500/timeout),
 - compact formatting (a snapshot on a sample ticket JSON),
 - config: precedence env > file > none,
-- the fact that all tools (read + write) are always registered, and without a config each returns the setup instruction.
+- the fact that all tools (read + write) are always registered, and without a config each returns the setup instruction,
+- Zephyr (§4.6): both cycle-listing shapes, ZQL paging, HTTP-200 failures, date conversion, the budget and
+  duplicate rails of the Zephyr write tools, the skip of tests already in a cycle, and the comment signature,
+- shared project rules (§5.2): matching by person and type, add-only merge on create and on an assignee
+  change, a failed read that does not block the write, and `set_project_rules` (dry run, all-or-nothing
+  validation, ambiguous people, kept property keys, the 403 message, the budget),
+- create rails (§4.2 safeguards 5 and 6): the refused create without a sprint choice (also for one item
+  of a batch), the epic and sub-task exemption, the exact bug layout, the `[label]` title, a localised bug
+  type, and `custom_template`.
 
 ### 8.2 Integration (opt-in, read-only)
 
@@ -352,6 +469,15 @@ manual write tests are allowed (Phase 2); automated tests stay read-only.
      existing `addAttachment` path. To check separately: the location of transcripts
      in Claude Desktop. Security: only image blocks, only the current project,
      information about what was found before uploading, the same safeguards as the rest of writing.
+  5. ✅ **Zephyr Squad Server** (done) — test cases with steps, test cycles, executions and
+     results (§4.6) + the `/test-cases` skill. Asked for by QA: keep all test cases in Zephyr,
+     build a test plan and run it without the manual upkeep that made the team drop Zephyr.
+  6. ✅ **Shared project rules** (done) — "assignee → component" per project, stored in Jira (§5.2), set in
+     plain words by the tester or the PM through `/project-rules`, applied in code on create and on an
+     assignee change.
+  7. ✅ **Sprint question and standard bug template** (done) — every new ticket needs the user's choice
+     "active sprint or backlog", and every bug follows the standard bug template (§4.2 safeguards 5 and 6).
+     Asked for by the team on 2026-11-25.
 - **Backlog:** research into AI-first team practices (deliverable: a report with recommendations, not
   code); Notion→Jira once access to the Notion MCP is obtained (configuration, not development).
 - **Rejected/shelved without a deadline:** task-context memory (Jira is the source of truth, a

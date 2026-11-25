@@ -5,6 +5,7 @@ import {
   EPIC_LINK_FIELD, EPIC_NAME_FIELD, SPRINT_FIELD, STORY_POINTS_FIELD, resolveField,
 } from '../issue-fields.mjs'
 import { markdownToWiki } from '../wiki-markup.mjs'
+import { componentsForAssignee, loadRulesForWrite, mergeComponents } from '../project-rules.mjs'
 
 /**
  * WRITE tool. Edits ONE existing issue, limited to a whitelist of fields.
@@ -23,8 +24,9 @@ export default {
       + 'priority, description (Markdown → wiki markup), story_points, sprint_id, epic_key (Epic '
       + 'Link), epic_name. Show the user exactly what will change and get confirmation BEFORE '
       + 'calling. `labels` and `components` REPLACE the current lists — to add a label without '
-      + 'losing the others use `add_labels`. To change status use transition_issue. Counts against '
-      + 'the per-session write budget.',
+      + 'losing the others use `add_labels`. A new assignee also gets the component from the '
+      + 'project\'s shared rules (get_project_rules), added in code without removing any. To change '
+      + 'status use transition_issue. Counts against the per-session write budget.',
     inputSchema: {
       key: z.string().describe('Issue key, e.g. "PROJ-42"'),
       summary: z.string().min(5).optional().describe('New title'),
@@ -56,6 +58,7 @@ export default {
 
     const fields = {}
     const changed = []
+    let rulesWarning
 
     if (args.summary !== undefined) {
       fields.summary = args.summary.trim()
@@ -80,6 +83,23 @@ export default {
     if (args.components) {
       fields.components = args.components.map((name) => ({ name }))
       changed.push(`components → ${args.components.join(', ') || '(empty)'}`)
+    }
+    const newAssignee = fields.assignee?.name
+    if (newAssignee) {
+      const rules = await loadRulesForWrite(config, client, project)
+      rulesWarning = rules.warning
+      if (rules.componentRules.length) {
+        const current = await client.getIssue(config, issueKey, { fields: ['components', 'issuetype'] })
+        const extra = componentsForAssignee(rules.componentRules, {
+          assignee: newAssignee, issueType: current.fields?.issuetype?.name,
+        })
+        const base = args.components ?? (current.fields?.components ?? []).map((c) => c.name)
+        const { list, added } = mergeComponents(base, extra)
+        if (added.length) {
+          fields.components = list.map((name) => ({ name }))
+          changed.push(`components += ${added.join(', ')} (project rule)`)
+        }
+      }
     }
     if (args.priority) {
       fields.priority = { name: args.priority }
@@ -117,6 +137,7 @@ export default {
 
     consumeWriteBudget(config, 'write')
     await client.updateIssue(config, issueKey, fields)
-    return `Updated ${issueKey}: ${changed.join(' · ')} — ${config.server}/browse/${issueKey}`
+    return [`Updated ${issueKey}: ${changed.join(' · ')} — ${config.server}/browse/${issueKey}`, rulesWarning]
+      .filter(Boolean).join('\n')
   },
 }

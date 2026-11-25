@@ -1,6 +1,6 @@
 # jira-tools
 
-Ask Claude about your self-hosted Jira instead of clicking around it. Examples: "show my tasks in PROJ", "sprint health for PROJ", "create a bug on iOS". One MCP server, two homes: Claude Code and Claude Desktop. 20 tools, 9 skills.
+Ask Claude about your self-hosted Jira instead of clicking around it. Examples: "show my tasks in PROJ", "sprint health for PROJ", "create a bug on iOS". One MCP server, two homes: Claude Code and Claude Desktop. 30 tools, 11 skills.
 
 Full tour: [docs/use-cases.md](plugins/jira-tools/docs/use-cases.md). Spec: [SPEC.md](SPEC.md).
 
@@ -56,7 +56,11 @@ Ask "what jira-tools version?" to see which version is connected. The answer als
 
 Read: your tasks, ticket detail, status history, boards, sprints, epic status, a sprint health report, a bug search by description, a story audit.
 
-Write: create tickets per platform or a whole breakdown (epic, stories, sub-tasks, also in bulk), edit fields, set Story Points, comment, attach files, change status, link tickets, attach to an epic, create a sprint in the backlog. Descriptions are Markdown and render as Jira wiki markup. Every write shows a preview first.
+Write: create tickets per platform or a whole breakdown (epic, stories, sub-tasks, also in bulk), edit fields, set Story Points, comment, attach files, change status, link tickets, attach to an epic, create a sprint in the backlog. Descriptions are Markdown and render as Jira wiki markup. Every write shows a preview first. Before each new ticket, the plugin asks: active sprint or backlog? Each bug uses the standard bug template: `[label] title`, then **Steps to reproduce**, **Actual result** and **Expected result**.
+
+Tests (Zephyr Squad): write test cases with steps from a story, build a test cycle, add tests to it, record PASS or FAIL, and see the progress of a cycle. Run `/jira-tools:test-cases PROJ-12`.
+
+Project rules: save a rule once per project, for example "bugs for Nowak get the Frontend component". The rule is kept in Jira, so all members of the project get it. The plugin then adds the component when it creates a ticket or changes the assignee. Run `/jira-tools:project-rules PROJ`.
 
 ## Guardrails
 

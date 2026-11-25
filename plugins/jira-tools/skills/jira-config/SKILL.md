@@ -31,12 +31,15 @@ Build a project profile so the other Jira skills stop guessing status names. Res
    Save the answers in the profile as `"platforms": [...]` and `"titleConvention": "..."` —
    `/jira-tools:create-task` reads them instead of assuming defaults.
 
-   Also set up **description templates per issue TYPE** (`taskTemplate.{bug,story,task}`).
-   Offer three ways, in this order:
+   Also set up **description templates per issue TYPE** (`taskTemplate.{story,task}`).
+   Bugs use the standard bug template built into jira-tools (`[label] title`, Steps to
+   reproduce, Actual result, Expected result), so skip the bug type. Save a `taskTemplate.bug`
+   only when the team wants an alternative: `/jira-tools:create-task` uses it only when the
+   user asks for another template. Offer three ways, in this order:
 
    1. **Import from an existing ticket (recommended)** — the user points at reference tickets in
       Jira that are written the way the team wants, one per type, e.g.
-      `BUG - DC-99, TASK - DC-100, STORY - DC-101`. For each: call `get_issue`, read the
+      `TASK - DC-100, STORY - DC-101`. For each: call `get_issue`, read the
       description, and derive a template from its STRUCTURE — keep the section headers,
       ordering, formatting and wording style; replace the concrete content of each section
       with a short placeholder. Show the derived template and ask for acceptance.
@@ -44,15 +47,16 @@ Build a project profile so the other Jira skills stop guessing status names. Res
    2. **Custom template** — the user pastes the sections directly.
    3. **Skill suggestion** — only when the user asks for a suggestion (phrase the section
       headers in the configured language):
-      bug: Problem / Reproduction steps / Expected / Environment;
       story: Business context / Scope / Acceptance criteria;
       task: Context / Scope / Definition of Done.
 
    Types not covered stay without a template (that's fine). Save as
-   `"taskTemplate": { "bug": "...", "story": "...", "task": "..." }`.
+   `"taskTemplate": { "story": "...", "task": "..." }`.
 
    Tell the user what the template is FOR: it makes `/jira-tools:create-task` ask them for
    the sections they skipped, instead of inventing content. The agent fills sections only
    with what the user provides.
 
-5. Show the user a short summary of what was saved: board, status column order, Epic Link / Epic Name / Story Points fields, issue type roles, component count, platforms + title convention. Mention that `/jira-tools:sprint-health` and epic queries will now use these statuses, and that `/jira-tools:create-task` will address issue types by role.
+5. **Shared rules (in Jira, for the whole team)**: call `get_project_rules` and show them. These rules are not part of the local profile. When the user wants to add or change one (e.g. "bugs for Nowak get the Frontend component"), follow `/jira-tools:project-rules`.
+
+6. Show the user a short summary of what was saved: board, status column order, Epic Link / Epic Name / Story Points fields, issue type roles, component count, platforms + title convention. Mention that `/jira-tools:sprint-health` and epic queries will now use these statuses, and that `/jira-tools:create-task` will address issue types by role.

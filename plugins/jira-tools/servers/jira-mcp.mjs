@@ -2231,8 +2231,8 @@ var require_resolve = __commonJS({
       }
       return count;
     }
-    function getFullPath(resolver, id = "", normalize2) {
-      if (normalize2 !== false)
+    function getFullPath(resolver, id = "", normalize3) {
+      if (normalize3 !== false)
         id = normalizeId(id);
       const p = resolver.parse(id);
       return _getFullPath(resolver, p);
@@ -3628,7 +3628,7 @@ var require_fast_uri = __commonJS({
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
-    function normalize2(uri, options) {
+    function normalize3(uri, options) {
       if (typeof uri === "string") {
         uri = /** @type {T} */
         normalizeString(uri, options);
@@ -3895,7 +3895,7 @@ var require_fast_uri = __commonJS({
     }
     var fastUri = {
       SCHEMES,
-      normalize: normalize2,
+      normalize: normalize3,
       resolve,
       resolveComponent,
       equal,
@@ -21114,12 +21114,16 @@ __export(jira_client_exports, {
   addAttachment: () => addAttachment,
   addComment: () => addComment,
   addIssuesToEpic: () => addIssuesToEpic,
+  addTestStep: () => addTestStep,
+  createExecution: () => createExecution,
   createIssue: () => createIssue,
   createIssuesBulk: () => createIssuesBulk,
   createSprint: () => createSprint,
+  createTestCycle: () => createTestCycle,
   debug: () => debug,
   doTransition: () => doTransition,
   expandKeys: () => expandKeys,
+  findUsers: () => findUsers,
   getActiveSprint: () => getActiveSprint,
   getBoard: () => getBoard,
   getBoardConfiguration: () => getBoardConfiguration,
@@ -21127,16 +21131,26 @@ __export(jira_client_exports, {
   getIssue: () => getIssue,
   getMyself: () => getMyself,
   getProject: () => getProject,
+  getProjectProperty: () => getProjectProperty,
   getSprintIssues: () => getSprintIssues,
+  getTestCycle: () => getTestCycle,
+  getTestSteps: () => getTestSteps,
   jiraFetch: () => jiraFetch,
   linkIssues: () => linkIssues,
   listBoards: () => listBoards,
+  listCycleFolders: () => listCycleFolders,
+  listExecutionStatuses: () => listExecutionStatuses,
   listFields: () => listFields,
   listIssueLinkTypes: () => listIssueLinkTypes,
+  listProjectVersions: () => listProjectVersions,
   listSprints: () => listSprints,
   listStatuses: () => listStatuses,
+  listTestCycles: () => listTestCycles,
   listTransitions: () => listTransitions,
+  searchExecutions: () => searchExecutions,
   searchIssues: () => searchIssues,
+  setProjectProperty: () => setProjectProperty,
+  updateExecutionStatus: () => updateExecutionStatus,
   updateIssue: () => updateIssue
 });
 var LIST_FIELDS = ["summary", "status", "issuetype", "priority", "assignee", "labels", "updated"];
@@ -21319,6 +21333,25 @@ function getProject(config2, projectKey) {
 function getBoardConfiguration(config2, boardId) {
   return jiraFetch(config2, `/rest/agile/1.0/board/${boardId}/configuration`, { what: `board configuration for ${boardId}` });
 }
+function projectPropertyPath(projectKey, propertyKey) {
+  return `/rest/api/2/project/${encodeURIComponent(projectKey)}/properties/${encodeURIComponent(propertyKey)}`;
+}
+async function getProjectProperty(config2, projectKey, propertyKey) {
+  try {
+    const res = await jiraFetch(config2, projectPropertyPath(projectKey, propertyKey), {
+      what: `property "${propertyKey}" of project ${projectKey}`
+    });
+    return res?.value ?? null;
+  } catch (err) {
+    if (err instanceof JiraError && err.status === 404) return null;
+    throw err;
+  }
+}
+function findUsers(config2, text) {
+  return jiraFetch(config2, `/rest/api/2/user/search${query({ username: text, maxResults: 20 })}`, {
+    what: `user search "${text}"`
+  });
+}
 function createIssue(config2, fields) {
   return jiraFetch(config2, "/rest/api/2/issue", {
     method: "POST",
@@ -21395,6 +21428,106 @@ function createSprint(config2, { boardId, name, goal, startDate, endDate }) {
   if (startDate) body.startDate = startDate;
   if (endDate) body.endDate = endDate;
   return jiraFetch(config2, "/rest/agile/1.0/sprint", { method: "POST", body, what: `create sprint "${name}"` });
+}
+function setProjectProperty(config2, projectKey, propertyKey, value) {
+  return jiraFetch(config2, projectPropertyPath(projectKey, propertyKey), {
+    method: "PUT",
+    body: value,
+    what: `property "${propertyKey}" of project ${projectKey}`
+  });
+}
+var ZAPI = "/rest/zapi/latest";
+async function zapiFetch(config2, path, opts = {}) {
+  const res = await jiraFetch(config2, `${ZAPI}${path}`, opts);
+  if (res && typeof res === "object" && !Array.isArray(res)) {
+    const message = res.errorId === "ERROR" ? res.errorDesc : typeof res.error === "string" ? res.error : void 0;
+    if (message) throw new JiraError(`Zephyr refused ${opts.what ?? path}: ${String(message).slice(0, 300)}`);
+  }
+  return res;
+}
+function listProjectVersions(config2, projectKey) {
+  return jiraFetch(config2, `/rest/api/2/project/${encodeURIComponent(projectKey)}/versions`, {
+    what: `versions of project ${projectKey}`
+  });
+}
+function listExecutionStatuses(config2) {
+  return zapiFetch(config2, "/util/testExecutionStatus", { what: "Zephyr execution statuses (is Zephyr Squad installed?)" });
+}
+function listTestCycles(config2, projectId, { versionId } = {}) {
+  return zapiFetch(config2, `/cycle${query({ projectId, versionId, expand: "executionSummaries" })}`, {
+    what: `Zephyr test cycles of project ${projectId} (is Zephyr Squad installed?)`
+  });
+}
+function getTestCycle(config2, cycleId) {
+  return zapiFetch(config2, `/cycle/${cycleId}`, { what: `Zephyr test cycle ${cycleId}` });
+}
+async function listCycleFolders(config2, cycleId, { projectId, versionId }) {
+  const path = `/cycle/${cycleId}/folders${query({ projectId, versionId, limit: 200, offset: 0 })}`;
+  const folders = await zapiFetch(config2, path, { what: `folders of Zephyr cycle ${cycleId}` });
+  return Array.isArray(folders) ? folders : [];
+}
+async function searchExecutions(config2, { zql, limit = 50 }) {
+  const executions = [];
+  let total = Infinity;
+  while (executions.length < Math.min(total, limit)) {
+    const maxRecords = Math.min(100, limit - executions.length);
+    const path = `/zql/executeSearch${query({ zqlQuery: zql, offset: executions.length, maxRecords })}`;
+    const page = await zapiFetch(config2, path, { what: `ZQL "${zql}"` });
+    total = page.totalCount ?? 0;
+    const batch = page.executions ?? [];
+    if (batch.length === 0) break;
+    executions.push(...batch);
+  }
+  return { executions: executions.slice(0, limit), total: Number.isFinite(total) ? total : executions.length };
+}
+async function getTestSteps(config2, issueId) {
+  const res = await zapiFetch(config2, `/teststep/${issueId}`, { what: `test steps of issue ${issueId}` });
+  if (Array.isArray(res)) return res;
+  return res?.stepBeanCollection ?? [];
+}
+function addTestStep(config2, issueId, { step, data = "", result = "" }) {
+  return zapiFetch(config2, `/teststep/${issueId}`, {
+    method: "POST",
+    body: { step, data, result },
+    what: `add test step to issue ${issueId}`
+  });
+}
+function createTestCycle(config2, { projectId, versionId, name, description, build, environment, startDate, endDate }) {
+  const body = { name, projectId: String(projectId), versionId: String(versionId) };
+  if (description) body.description = description;
+  if (build) body.build = build;
+  if (environment) body.environment = environment;
+  if (startDate) body.startDate = startDate;
+  if (endDate) body.endDate = endDate;
+  return zapiFetch(config2, "/cycle", { method: "POST", body, what: `create test cycle "${name}"` });
+}
+async function createExecution(config2, { issueId, cycleId, projectId, versionId, folderId }) {
+  const body = {
+    issueId: String(issueId),
+    cycleId: String(cycleId),
+    projectId: String(projectId),
+    versionId: String(versionId)
+  };
+  if (folderId !== void 0) body.folderId = String(folderId);
+  const res = await zapiFetch(config2, "/execution", {
+    method: "POST",
+    body,
+    what: `add issue ${issueId} to test cycle ${cycleId}`
+  });
+  if (res && typeof res === "object" && res.id === void 0) {
+    const [first] = Object.values(res);
+    return first ?? null;
+  }
+  return res;
+}
+function updateExecutionStatus(config2, executionId, { status, comment }) {
+  const body = { status: Number(status) };
+  if (comment !== void 0) body.comment = comment;
+  return zapiFetch(config2, `/execution/${executionId}/execute`, {
+    method: "PUT",
+    body,
+    what: `status of execution ${executionId}`
+  });
 }
 
 // plugins/jira-tools/src/write-guard.mjs
@@ -21692,6 +21825,72 @@ function inline(s) {
   return t.replace(new RegExp(`${SENTINEL}C(\\d+)${SENTINEL}`, "g"), (_, n) => codes[Number(n)]);
 }
 
+// plugins/jira-tools/src/project-rules.mjs
+var RULES_PROPERTY = "jira-tools";
+var COMPONENT_RULE = external_exports.object({
+  component: external_exports.string().min(1),
+  assignees: external_exports.array(external_exports.string().min(1)).min(1),
+  issueTypes: external_exports.array(external_exports.string().min(1)).optional()
+});
+var RULES_VALUE = external_exports.object({
+  componentRules: external_exports.array(COMPONENT_RULE).optional(),
+  updatedBy: external_exports.string().optional(),
+  updatedAt: external_exports.string().optional()
+}).passthrough();
+async function loadProjectRules(config2, client, project) {
+  const raw = await client.getProjectProperty(config2, project, RULES_PROPERTY);
+  if (raw === null || raw === void 0) return { value: {}, componentRules: [] };
+  const parsed = RULES_VALUE.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      value: {},
+      componentRules: [],
+      warning: `The shared rules of ${project} are not valid, so none was applied. Save them again with set_project_rules.`
+    };
+  }
+  return { value: parsed.data, componentRules: parsed.data.componentRules ?? [] };
+}
+async function loadRulesForWrite(config2, client, project) {
+  try {
+    return await loadProjectRules(config2, client, project);
+  } catch (err) {
+    debug("project rules unavailable:", err?.message);
+    return {
+      componentRules: [],
+      warning: `The shared rules of ${project} could not be read (${err?.message ?? err}), so no rule component was added.`
+    };
+  }
+}
+function componentsForAssignee(componentRules, { assignee, issueType }) {
+  const who = String(assignee ?? "").trim().toLowerCase();
+  if (!who) return [];
+  const type = String(issueType ?? "").trim().toLowerCase();
+  const out = [];
+  for (const rule of componentRules ?? []) {
+    if (!rule.assignees.some((name) => name.toLowerCase() === who)) continue;
+    if (rule.issueTypes?.length && !rule.issueTypes.some((t) => t.toLowerCase() === type)) continue;
+    if (!out.some((c) => c.toLowerCase() === rule.component.toLowerCase())) out.push(rule.component);
+  }
+  return out;
+}
+function mergeComponents(current, extra) {
+  const list = [...current];
+  const added = [];
+  for (const name of extra) {
+    if (list.some((c) => c.toLowerCase() === name.toLowerCase())) continue;
+    list.push(name);
+    added.push(name);
+  }
+  return { list, added };
+}
+function formatComponentRules(componentRules, displayNames = /* @__PURE__ */ new Map()) {
+  return componentRules.map((rule) => {
+    const who = rule.assignees.map((name) => displayNames.has(name) ? `${name} (${displayNames.get(name)})` : name);
+    const types = rule.issueTypes?.length ? rule.issueTypes.join(", ") : "Any type";
+    return `- ${types} \u2192 ${rule.component}: ${who.join(", ")}`;
+  });
+}
+
 // plugins/jira-tools/src/issue-fields.mjs
 var EPIC_LINK_FIELD = { profileKey: "epicLinkField", fieldName: "Epic Link", customSuffix: ":gh-epic-link" };
 var SPRINT_FIELD = { profileKey: "sprintField", fieldName: "Sprint", customSuffix: ":gh-sprint" };
@@ -21742,6 +21941,12 @@ function isEpicType(config2, project, typeName, requested) {
   if (mapped && String(mapped).toLowerCase() === String(typeName).toLowerCase()) return true;
   return ROLE_PATTERNS.epic.test(String(typeName));
 }
+function isBugType(config2, project, typeName, requested) {
+  if (String(requested).trim().toLowerCase() === "bug") return true;
+  const mapped = getProjectProfile(config2, project).issueTypeRoles?.bug;
+  if (mapped && String(mapped).toLowerCase() === String(typeName).toLowerCase()) return true;
+  return ROLE_PATTERNS.bug.test(String(typeName));
+}
 function detectIssueTypeRoles(projectTypes) {
   const roles = {};
   const sub = projectTypes.find((t) => t.subtask);
@@ -21770,10 +21975,59 @@ var ISSUE_ITEM_INPUT = {
   ),
   parent: external_exports.string().optional().describe('Parent issue key, required for a sub-task type, e.g. "PROJ-42"'),
   story_points: external_exports.number().optional().describe("Story Points"),
-  sprint_id: external_exports.number().int().optional().describe("Sprint id to place the issue in (find it via get_active_sprint); omit for backlog"),
+  sprint_id: external_exports.number().int().optional().describe("Sprint id (from get_active_sprint) when the user chose the sprint"),
+  backlog: external_exports.boolean().optional().describe(
+    "Set true when the user chose the backlog. A new issue other than an epic or a sub-task needs sprint_id or backlog=true: ask the user, never choose for them"
+  ),
+  steps_to_reproduce: external_exports.array(external_exports.string()).optional().describe("Bug (standard template): the steps to reproduce, one per item"),
+  actual_result: external_exports.string().optional().describe("Bug (standard template): what happens now"),
+  expected_result: external_exports.string().optional().describe("Bug (standard template): what should happen"),
+  custom_template: external_exports.boolean().optional().describe(
+    "Bug: set true ONLY when the user explicitly asked for a template other than the standard one; the description is then used as written"
+  ),
   allow_duplicate: external_exports.boolean().optional().describe("Set true ONLY when the user explicitly confirmed creating a near-duplicate")
 };
-async function buildIssueFields(args, { config: config2, client, project, projectTypes }) {
+var TO_BE_FILLED = "(to be filled in)";
+var BUG_TITLE = /^\[[^\]]+\]\s*\S/;
+function hasBugFields(args) {
+  return Boolean(args.steps_to_reproduce?.length || args.actual_result?.trim() || args.expected_result?.trim());
+}
+function bugDescription({ steps_to_reproduce: steps = [], actual_result: actual, expected_result: expected }) {
+  const stepLines = steps.map((step) => String(step).replace(/^\s*\d+[.)]\s*/, "").trim()).filter(Boolean).map((step) => `# ${markdownToWiki(step)}`);
+  const text = (value) => value?.trim() ? markdownToWiki(value.trim()) : TO_BE_FILLED;
+  return [
+    `*Steps to reproduce:*
+${stepLines.length ? stepLines.join("\n") : TO_BE_FILLED}`,
+    `*Actual result:*
+${text(actual)}`,
+    `*Expected result:*
+${text(expected)}`
+  ].join("\n\n");
+}
+function createRailError(args, { config: config2, project, projectTypes }) {
+  const requestedType = args.issue_type.trim();
+  const resolved = resolveIssueType(config2, project, projectTypes, requestedType);
+  const typeName = resolved?.name ?? requestedType;
+  const subtask = resolved ? resolved.subtask : requestedType.toLowerCase() === "subtask";
+  if (!subtask && !isEpicType(config2, project, typeName, requestedType)) {
+    if (args.sprint_id !== void 0 && args.backlog) {
+      return "sprint_id and backlog=true contradict each other. Pass only one of them.";
+    }
+    if (args.sprint_id === void 0 && !args.backlog) {
+      return "ask the user first: the active sprint or the backlog? Then pass sprint_id (from get_active_sprint) or backlog=true. Never choose for the user.";
+    }
+  }
+  if (isBugType(config2, project, typeName, requestedType) && !args.custom_template) {
+    if (!hasBugFields(args)) {
+      return `a bug uses the standard bug template. Pass steps_to_reproduce, actual_result and expected_result, and ask the user for the missing ones (a skipped one becomes "${TO_BE_FILLED}"). Only when the user asked for another template, set custom_template=true and pass the description.`;
+    }
+    if (!BUG_TITLE.test(args.summary.trim())) {
+      return 'a bug title follows "[label] title", e.g. "[Web] Save button does nothing". Ask the user for the label when it is not clear.';
+    }
+  }
+  return null;
+}
+async function buildIssueFields(args, { config: config2, client, project, projectTypes, componentRules = [] }) {
   const summary = args.summary.trim();
   const requestedType = args.issue_type.trim();
   const resolvedType = resolveIssueType(config2, project, projectTypes, requestedType);
@@ -21800,10 +22054,14 @@ async function buildIssueFields(args, { config: config2, client, project, projec
     summary
   };
   if (parentKey) fields.parent = { key: parentKey };
-  if (args.description) {
-    fields.description = args.description_format === "wiki" ? args.description : markdownToWiki(args.description);
-  }
-  if (args.components?.length) fields.components = args.components.map((name) => ({ name }));
+  const notes = args.description ? args.description_format === "wiki" ? args.description : markdownToWiki(args.description) : "";
+  const description = [hasBugFields(args) ? bugDescription(args) : "", notes].filter(Boolean).join("\n\n");
+  if (description) fields.description = description;
+  const { list: components, added: ruleComponents } = mergeComponents(
+    args.components ?? [],
+    componentsForAssignee(componentRules, { assignee: args.assignee, issueType: typeName })
+  );
+  if (components.length) fields.components = components.map((name) => ({ name }));
   const labels = [...args.labels ?? []];
   if (!labels.includes("ai-generated")) labels.push("ai-generated");
   fields.labels = labels;
@@ -21821,7 +22079,7 @@ async function buildIssueFields(args, { config: config2, client, project, projec
   if (args.story_points !== void 0) {
     fields[await resolveField(config2, client, project, STORY_POINTS_FIELD)] = args.story_points;
   }
-  return { fields, summary, typeName, parentKey };
+  return { fields, summary, typeName, parentKey, ruleComponents };
 }
 
 // plugins/jira-tools/src/tools/create-issue.mjs
@@ -21829,7 +22087,7 @@ var create_issue_default = {
   name: "create_issue",
   config: {
     title: "Create issue (WRITE)",
-    description: "Create exactly ONE Jira issue and return its key + URL. Supports epics (epic_name, defaults to the summary), sub-tasks (parent) and role-based issue types (epic/story/task/subtask/bug resolved to the project's own type names). Descriptions are Markdown, converted to Jira wiki markup. For a whole breakdown use create_issues (up to 50 in one call) \u2014 but ALWAYS after the /jira-tools:create-task dry-run and the user's confirmation. Server-side rails: refuses when an open issue with the same summary exists (same parent for sub-tasks) unless allow_duplicate=true, and enforces a per-session write budget.",
+    description: `Create exactly ONE Jira issue and return its key + URL. Supports epics (epic_name, defaults to the summary), sub-tasks (parent) and role-based issue types (epic/story/task/subtask/bug resolved to the project's own type names). Descriptions are Markdown, converted to Jira wiki markup. For a whole breakdown use create_issues (up to 50 in one call) \u2014 but ALWAYS after the /jira-tools:create-task dry-run and the user's confirmation. Server-side rails: refuses when an open issue with the same summary exists (same parent for sub-tasks) unless allow_duplicate=true, and enforces a per-session write budget. Ask the user first: active sprint or backlog. sprint_id or backlog=true is required, except for epics and sub-tasks. A bug uses the standard template: summary "[label] title" plus steps_to_reproduce, actual_result and expected_result (the server writes the description). With an assignee, the project's shared rules (get_project_rules) add the assignee's component in code.`,
     inputSchema: {
       project: external_exports.string().describe('Project key, e.g. "PROJ"'),
       ...ISSUE_ITEM_INPUT
@@ -21844,6 +22102,9 @@ var create_issue_default = {
     const project = args.project.trim().toUpperCase();
     const summary = args.summary.trim();
     const parentKey = args.parent?.trim().toUpperCase();
+    const projectTypes = await loadProjectTypes(config2, client, project);
+    const refusal = createRailError(args, { config: config2, project, projectTypes });
+    if (refusal) throw new JiraError(`Not created \u2014 ${refusal}`);
     if (!args.allow_duplicate) {
       const duplicate = await findDuplicate(config2, client, project, summary, { parent: parentKey });
       if (duplicate) {
@@ -21853,11 +22114,18 @@ var create_issue_default = {
         );
       }
     }
-    const projectTypes = await loadProjectTypes(config2, client, project);
-    const { fields } = await buildIssueFields(args, { config: config2, client, project, projectTypes });
+    const rules = args.assignee ? await loadRulesForWrite(config2, client, project) : { componentRules: [] };
+    const { fields, ruleComponents } = await buildIssueFields(args, {
+      config: config2,
+      client,
+      project,
+      projectTypes,
+      componentRules: rules.componentRules
+    });
     consumeWriteBudget(config2, "create");
     const created = await client.createIssue(config2, fields);
-    return `Created ${created.key} \u2014 ${config2.server}/browse/${created.key}`;
+    const ruleNote = ruleComponents.length ? ` \xB7 component ${ruleComponents.join(", ")} added by the project rule` : "";
+    return [`Created ${created.key} \u2014 ${config2.server}/browse/${created.key}${ruleNote}`, rules.warning].filter(Boolean).join("\n");
   }
 };
 
@@ -21877,7 +22145,7 @@ var create_issues_default = {
   name: "create_issues",
   config: {
     title: "Create issues in bulk (WRITE)",
-    description: `Create up to ${MAX_ITEMS} issues in ONE call (POST /rest/api/2/issue/bulk) \u2014 the sanctioned way to create a whole breakdown. Call it ONLY after the /jira-tools:create-task dry-run and the user's explicit confirmation. Jira assigns keys on creation, so a parent or epic created in this call cannot be referenced by the same call: create the epic and the stories first, then the sub-tasks in a second call with parent set. Each item follows the create_issue rules (roles, epic_name, parent validation, Markdown \u2192 wiki, ai-generated label). The whole batch must fit the session write budget or nothing is created; each item passes the duplicate guard. Returns the created keys and per-item errors.`,
+    description: `Create up to ${MAX_ITEMS} issues in ONE call (POST /rest/api/2/issue/bulk) \u2014 the sanctioned way to create a whole breakdown. Call it ONLY after the /jira-tools:create-task dry-run and the user's explicit confirmation. Jira assigns keys on creation, so a parent or epic created in this call cannot be referenced by the same call: create the epic and the stories first, then the sub-tasks in a second call with parent set. Each item follows the create_issue rules (roles, epic_name, parent validation, Markdown \u2192 wiki, ai-generated label, sprint_id or backlog=true per item, the standard bug template). The whole batch must fit the session write budget or nothing is created; each item passes the duplicate guard. Items with an assignee get the component from the project's shared rules (get_project_rules). Returns the created keys and per-item errors.`,
     inputSchema: {
       project: external_exports.string().describe('Project key, e.g. "PROJ"'),
       items: external_exports.array(external_exports.object(ISSUE_ITEM_INPUT)).min(1).max(MAX_ITEMS).describe(`Issues to create, in order (max ${MAX_ITEMS})`)
@@ -21893,8 +22161,14 @@ var create_issues_default = {
     const { items } = args;
     assertWriteBudget(config2, "create", items.length);
     const projectTypes = await loadProjectTypes(config2, client, project);
+    for (const [index, item] of items.entries()) {
+      const refusal = createRailError(item, { config: config2, project, projectTypes });
+      if (refusal) throw new JiraError(`Nothing created \u2014 item ${index + 1} ("${item.summary.trim()}"): ${refusal}`);
+    }
+    const rules = items.some((item) => item.assignee) ? await loadRulesForWrite(config2, client, project) : { componentRules: [] };
     const seen = /* @__PURE__ */ new Set();
     const payload = [];
+    const ruleNotes = [];
     for (const [index, item] of items.entries()) {
       const summary = item.summary.trim();
       const parentKey = item.parent?.trim().toUpperCase();
@@ -21913,8 +22187,15 @@ var create_issues_default = {
         }
       }
       seen.add(fingerprint);
-      const { fields } = await buildIssueFields(item, { config: config2, client, project, projectTypes });
+      const { fields, ruleComponents } = await buildIssueFields(item, {
+        config: config2,
+        client,
+        project,
+        projectTypes,
+        componentRules: rules.componentRules
+      });
       payload.push(fields);
+      ruleNotes.push(ruleComponents.length ? ` \xB7 +${ruleComponents.join(", ")} (project rule)` : "");
     }
     const result = await client.createIssuesBulk(config2, payload);
     const created = result?.issues ?? [];
@@ -21931,11 +22212,12 @@ var create_issues_default = {
       }
       const issue2 = created[next];
       next += 1;
-      lines.push(`- ${issue2?.key ?? "?"} "${summary}" \u2014 ${config2.server}/browse/${issue2?.key ?? ""}`);
+      lines.push(`- ${issue2?.key ?? "?"} "${summary}"${ruleNotes[index]} \u2014 ${config2.server}/browse/${issue2?.key ?? ""}`);
     });
     if (failed.size) {
       lines.push(`${failed.size} item(s) failed \u2014 fix and create those again; the created ones are NOT rolled back.`);
     }
+    if (rules.warning) lines.push(rules.warning);
     return lines.join("\n");
   }
 };
@@ -22172,6 +22454,66 @@ function formatEpicStatus(epicKey, { issues, total }) {
   }
   return out.join("\n");
 }
+function clip(text, max) {
+  const flat = String(text ?? "").replaceAll(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}\u2026` : flat;
+}
+function executionStatusName(execution, statusNames) {
+  const id = execution.executionStatus === void 0 ? void 0 : String(execution.executionStatus);
+  return execution.status?.name ?? (id ? statusNames?.get(id) ?? id : "?");
+}
+function formatExecutionLine(execution, statusNames) {
+  const e = execution;
+  const where = e.folderName ? `${e.cycleName ?? "?"} / ${e.folderName}` : e.cycleName ?? "?";
+  const parts = [
+    `#${e.id} ${executionStatusName(e, statusNames)}`,
+    `${e.issueKey ?? "?"} \u2014 ${clip(e.issueSummary ?? e.summary ?? "(no title)", 90)}`,
+    `\xB7 ${where}`,
+    `\xB7 ${e.versionName ?? "Unscheduled"}`
+  ];
+  const who = e.executedByDisplay || e.executedBy;
+  if (who || e.executedOn) parts.push(`\xB7 by ${who || "?"} ${e.executedOn ?? ""}`.trimEnd());
+  if (e.totalDefectCount) parts.push(`\xB7 defects: ${e.totalDefectCount}`);
+  if (e.comment) parts.push(`\xB7 comment: "${clip(e.comment, 120)}"`);
+  return parts.join(" ");
+}
+function formatStatusCounts(executions, statusNames) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const e of executions) {
+    const name = executionStatusName(e, statusNames);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} ${n}`).join(" \xB7 ");
+}
+function formatExecutionList({ executions, total }, statusNames) {
+  if (executions.length === 0) return "No executions.";
+  const lines = executions.map((e) => formatExecutionLine(e, statusNames));
+  const shown = executions.length < total ? `${executions.length} of ${total} shown` : `${total}`;
+  lines.push("", `Statuses (${shown}): ${formatStatusCounts(executions, statusNames)}`);
+  if (executions.length < total) {
+    lines.push(`(showing ${executions.length} of ${total} \u2014 narrow the ZQL or raise max_results)`);
+  }
+  return lines.join("\n");
+}
+function formatTestSteps(steps) {
+  if (steps.length === 0) return ["", "STEPS: none"];
+  const lines = ["", `STEPS (${steps.length}):`];
+  steps.forEach((s, index) => {
+    lines.push(`${s.orderId ?? index + 1}. ${String(s.step ?? "").trim() || "(empty)"}`);
+    if (String(s.data ?? "").trim()) lines.push(`   Data: ${String(s.data).trim().replaceAll("\n", "\n   ")}`);
+    if (String(s.result ?? "").trim()) lines.push(`   Expected: ${String(s.result).trim().replaceAll("\n", "\n   ")}`);
+  });
+  return lines;
+}
+function formatCycleLine(cycle, { executed, total, folders }) {
+  const parts = [`#${cycle.id} ${cycle.name ?? "?"}`, `\xB7 version: ${cycle.versionName ?? "Unscheduled"}`];
+  if (cycle.environment) parts.push(`\xB7 env: ${cycle.environment}`);
+  if (cycle.build) parts.push(`\xB7 build: ${cycle.build}`);
+  if (cycle.startDate || cycle.endDate) parts.push(`\xB7 ${cycle.startDate || "?"} \u2192 ${cycle.endDate || "?"}`);
+  parts.push(`\xB7 executed ${executed}/${total}`);
+  if (folders) parts.push(`\xB7 folders: ${folders}`);
+  return parts.join(" ");
+}
 
 // plugins/jira-tools/src/tools/search-issues.mjs
 var TOP_LEVEL = /* @__PURE__ */ new Set(["id", "key", "self"]);
@@ -22283,7 +22625,7 @@ var update_issue_default = {
   name: "update_issue",
   config: {
     title: "Update issue fields (WRITE)",
-    description: "Change fields of ONE existing issue: summary, assignee, labels, components, priority, description (Markdown \u2192 wiki markup), story_points, sprint_id, epic_key (Epic Link), epic_name. Show the user exactly what will change and get confirmation BEFORE calling. `labels` and `components` REPLACE the current lists \u2014 to add a label without losing the others use `add_labels`. To change status use transition_issue. Counts against the per-session write budget.",
+    description: "Change fields of ONE existing issue: summary, assignee, labels, components, priority, description (Markdown \u2192 wiki markup), story_points, sprint_id, epic_key (Epic Link), epic_name. Show the user exactly what will change and get confirmation BEFORE calling. `labels` and `components` REPLACE the current lists \u2014 to add a label without losing the others use `add_labels`. A new assignee also gets the component from the project's shared rules (get_project_rules), added in code without removing any. To change status use transition_issue. Counts against the per-session write budget.",
     inputSchema: {
       key: external_exports.string().describe('Issue key, e.g. "PROJ-42"'),
       summary: external_exports.string().min(5).optional().describe("New title"),
@@ -22310,6 +22652,7 @@ var update_issue_default = {
     const project = issueKey.split("-")[0];
     const fields = {};
     const changed = [];
+    let rulesWarning;
     if (args.summary !== void 0) {
       fields.summary = args.summary.trim();
       changed.push(`summary \u2192 ${fields.summary}`);
@@ -22332,6 +22675,24 @@ var update_issue_default = {
     if (args.components) {
       fields.components = args.components.map((name) => ({ name }));
       changed.push(`components \u2192 ${args.components.join(", ") || "(empty)"}`);
+    }
+    const newAssignee = fields.assignee?.name;
+    if (newAssignee) {
+      const rules = await loadRulesForWrite(config2, client, project);
+      rulesWarning = rules.warning;
+      if (rules.componentRules.length) {
+        const current = await client.getIssue(config2, issueKey, { fields: ["components", "issuetype"] });
+        const extra = componentsForAssignee(rules.componentRules, {
+          assignee: newAssignee,
+          issueType: current.fields?.issuetype?.name
+        });
+        const base = args.components ?? (current.fields?.components ?? []).map((c) => c.name);
+        const { list, added } = mergeComponents(base, extra);
+        if (added.length) {
+          fields.components = list.map((name) => ({ name }));
+          changed.push(`components += ${added.join(", ")} (project rule)`);
+        }
+      }
     }
     if (args.priority) {
       fields.priority = { name: args.priority };
@@ -22366,7 +22727,7 @@ var update_issue_default = {
     }
     consumeWriteBudget(config2, "write");
     await client.updateIssue(config2, issueKey, fields);
-    return `Updated ${issueKey}: ${changed.join(" \xB7 ")} \u2014 ${config2.server}/browse/${issueKey}`;
+    return [`Updated ${issueKey}: ${changed.join(" \xB7 ")} \u2014 ${config2.server}/browse/${issueKey}`, rulesWarning].filter(Boolean).join("\n");
   }
 };
 
@@ -22656,6 +23017,154 @@ var get_project_config_default = {
   }
 };
 
+// plugins/jira-tools/src/tools/get-project-rules.mjs
+var get_project_rules_default = {
+  name: "get_project_rules",
+  config: {
+    title: "Get shared project rules",
+    description: `Show the rules a project shares with everyone who uses jira-tools on it. They are stored in Jira itself (project property "${RULES_PROPERTY}"), not in a local config. Today: "assignee \u2192 component" \u2014 create_issue, create_issues, create_test_cases and update_issue (assignee change) add the component in code when the assignee and the issue type match. Call it before a create preview to show the component a rule will add. Change the rules with set_project_rules.`,
+    inputSchema: {
+      project: external_exports.string().describe('Project key, e.g. "PROJ"')
+    }
+  },
+  /**
+   * @param {{project: string}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ project }, { config: config2, client }) {
+    const key = project.trim().toUpperCase();
+    const rules = await loadProjectRules(config2, client, key);
+    if (rules.warning) return rules.warning;
+    if (!rules.componentRules.length) {
+      return `No shared rules in ${key}. Set them with set_project_rules (needs the Administer Projects permission).`;
+    }
+    const { updatedBy, updatedAt } = rules.value;
+    return [
+      `Shared rules of ${key} (stored in Jira, used by everyone who works on ${key} with jira-tools):`,
+      "Component by assignee (issue type \u2192 component: assignees):",
+      ...formatComponentRules(rules.componentRules),
+      ...updatedBy || updatedAt ? [`Last change: ${updatedBy ?? "?"}, ${updatedAt?.slice(0, 10) ?? "?"}`] : [],
+      "Only jira-tools applies them. An assignment made by hand in Jira adds no component."
+    ].join("\n");
+  }
+};
+
+// plugins/jira-tools/src/tools/set-project-rules.mjs
+var MAX_RULES = 30;
+var MAX_ASSIGNEES = 30;
+async function resolveUser(config2, client, text, cache) {
+  const q = text.trim();
+  const cacheKey = q.toLowerCase();
+  if (cache.has(cacheKey)) return cache.get(cacheKey);
+  const hits = await client.findUsers(config2, q) ?? [];
+  const exact = hits.find((u) => String(u.name).toLowerCase() === cacheKey);
+  let result;
+  if (exact) result = exact;
+  else if (hits.length === 1) result = hits[0];
+  else if (!hits.length) result = { error: `no active Jira user matches "${q}"` };
+  else {
+    const names = hits.slice(0, 5).map((u) => `${u.name} (${u.displayName})`).join(", ");
+    result = { error: `"${q}" matches ${hits.length} users: ${names} \u2014 use the username` };
+  }
+  cache.set(cacheKey, result);
+  return result;
+}
+var set_project_rules_default = {
+  name: "set_project_rules",
+  config: {
+    title: "Set shared project rules (WRITE)",
+    description: `Save the "assignee \u2192 component" rules of a project in Jira (project property "${RULES_PROPERTY}"), shared by everyone who uses jira-tools on it. Example: "if a bug is assigned to Nowak or jkowalski, add the Frontend component". The call REPLACES all component rules of the project: read the current ones with get_project_rules, merge the change, and pass the full list (an empty list clears them). People may be usernames or names; each must match exactly one active user. Components and issue types (roles bug/story/task/epic/subtask or exact names) must exist in the project. One problem \u2192 nothing is saved. Call first with dry_run=true for the preview, then without it after the user confirms. Needs the Administer Projects permission. Counts against the per-session write budget.`,
+    inputSchema: {
+      project: external_exports.string().describe('Project key, e.g. "PROJ"'),
+      component_rules: external_exports.array(external_exports.object({
+        component: external_exports.string().min(1).describe('Component name, e.g. "Frontend"'),
+        assignees: external_exports.array(external_exports.string().min(1)).min(1).max(MAX_ASSIGNEES).describe('Usernames or names, e.g. ["jkowalski", "Nowak"]'),
+        issue_types: external_exports.array(external_exports.string().min(1)).optional().describe('Issue types the rule applies to, e.g. ["bug"]; omit for all types')
+      })).max(MAX_RULES).describe(`The full list of component rules (max ${MAX_RULES})`),
+      dry_run: external_exports.boolean().optional().describe("true = check and show the result, save nothing")
+    }
+  },
+  /**
+   * @param {{project: string, component_rules: object[], dry_run?: boolean}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ project, component_rules, dry_run }, { config: config2, client }) {
+    const key = project.trim().toUpperCase();
+    if (!dry_run) assertWriteBudget(config2, "write", 1);
+    const proj = await client.getProject(config2, key);
+    const componentNames = (proj?.components ?? []).map((c) => String(c.name));
+    const projectTypes = (proj?.issueTypes ?? []).map((t) => ({ name: String(t.name), subtask: Boolean(t.subtask) }));
+    const userCache = /* @__PURE__ */ new Map();
+    const displayNames = /* @__PURE__ */ new Map();
+    const problems = [];
+    const rules = [];
+    for (const [index, rule] of component_rules.entries()) {
+      const label = `rule ${index + 1}`;
+      const component = componentNames.find((c) => c.toLowerCase() === rule.component.trim().toLowerCase());
+      if (!component) {
+        problems.push(`${label}: ${key} has no component "${rule.component}". Components: ${componentNames.join(", ") || "none"}.`);
+      }
+      const issueTypes = [];
+      for (const requested of rule.issue_types ?? []) {
+        const type = resolveIssueType(config2, key, projectTypes, requested);
+        if (!type) {
+          problems.push(`${label}: ${key} has no issue type "${requested}". Types: ${projectTypes.map((t) => t.name).join(", ") || "none"}.`);
+        } else if (!issueTypes.includes(type.name)) {
+          issueTypes.push(type.name);
+        }
+      }
+      const assignees = [];
+      for (const who of rule.assignees) {
+        const user = await resolveUser(config2, client, who, userCache);
+        if ("error" in user) {
+          problems.push(`${label}: ${user.error}`);
+          continue;
+        }
+        if (!assignees.includes(user.name)) assignees.push(user.name);
+        displayNames.set(user.name, user.displayName);
+      }
+      if (component) rules.push({ component, assignees, ...issueTypes.length ? { issueTypes } : {} });
+    }
+    if (problems.length) {
+      throw new JiraError(["Nothing saved:", ...problems.map((p) => `- ${p}`)].join("\n"));
+    }
+    const lines = rules.length ? formatComponentRules(rules, displayNames) : ["(no rules \u2014 this clears them)"];
+    if (dry_run) {
+      return [
+        `Preview, nothing saved. The component rules of ${key} would be (issue type \u2192 component: assignees):`,
+        ...lines,
+        `Saving replaces all component rules of ${key}.`
+      ].join("\n");
+    }
+    const current = await loadProjectRules(config2, client, key);
+    const me = await client.getMyself(config2);
+    const value = {
+      ...current.value,
+      componentRules: rules,
+      updatedBy: me?.name ?? "?",
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    consumeWriteBudget(config2, "write");
+    try {
+      await client.setProjectProperty(config2, key, RULES_PROPERTY, value);
+    } catch (err) {
+      if (err instanceof JiraError && err.status === 403) {
+        throw new JiraError(
+          `Not saved \u2014 changing the rules of ${key} needs the Administer Projects permission. Ask a project admin to save them or to give you the permission.`
+        );
+      }
+      throw err;
+    }
+    return [
+      `Saved ${rules.length} component rule(s) for ${key} in Jira. Everyone who works on ${key} with jira-tools gets them:`,
+      ...lines,
+      "They apply when jira-tools creates an issue or changes its assignee. An assignment made by hand in Jira adds no component."
+    ].join("\n");
+  }
+};
+
 // plugins/jira-tools/src/update.mjs
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -22663,7 +23172,7 @@ import { homedir as homedir2, tmpdir } from "node:os";
 import { join as join2 } from "node:path";
 
 // plugins/jira-tools/src/version.mjs
-var VERSION = "0.8.1";
+var VERSION = "0.9.0";
 
 // plugins/jira-tools/src/update.mjs
 var RELEASE_BASE = "https://raw.githubusercontent.com/magic-lewko/magic-jira-mcp/main/releases/";
@@ -22817,6 +23326,558 @@ Pass force=true to download the Claude Desktop .mcpb file anyway.`;
   }
 };
 
+// plugins/jira-tools/src/zephyr.mjs
+var AI_SIGNATURE = "_(ai-generated \xB7 jira-tools)_";
+var MAX_STEPS = 30;
+var UNSCHEDULED = { id: -1, name: "Unscheduled" };
+var TEST_STEP_INPUT = external_exports.object({
+  step: external_exports.string().min(1).describe('Action, e.g. "Tap Log in"'),
+  data: external_exports.string().optional().describe('Test data, e.g. "user: demo@example.com"'),
+  result: external_exports.string().optional().describe('Expected result, e.g. "The dashboard opens"')
+});
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function isZephyrTestType(type) {
+  if (!type || type.subtask) return false;
+  return String(type.name ?? "").trim().toLowerCase() === "test" || /zephyr/i.test(String(type.description ?? ""));
+}
+async function resolveZephyrProject(config2, client, projectKey, { requireTestType = false } = {}) {
+  const key = projectKey.trim().toUpperCase();
+  const project = await client.getProject(config2, key);
+  const types = project?.issueTypes ?? [];
+  const testType = types.find((t) => !t.subtask && String(t.name).trim().toLowerCase() === "test") ?? types.find(isZephyrTestType);
+  if (requireTestType && !testType) {
+    throw new JiraError(
+      `Project ${key} has no Zephyr "Test" issue type, so Zephyr is not enabled for it. Issue types: ${types.map((t) => t.name).join(", ") || "(none)"}.`
+    );
+  }
+  return { id: String(project.id), key, testType: testType?.name ?? null };
+}
+async function resolveVersion(config2, client, projectKey, name) {
+  const wanted = String(name ?? "").trim().toLowerCase();
+  if (!wanted || wanted === "unscheduled") return UNSCHEDULED;
+  const versions = await client.listProjectVersions(config2, projectKey);
+  const hit = versions.find((v) => String(v.name).trim().toLowerCase() === wanted);
+  if (!hit) {
+    const open = versions.filter((v) => !v.archived && !v.released).map((v) => v.name);
+    throw new JiraError(
+      `Version not found in ${projectKey}: "${name}". Unreleased versions: ${open.slice(-20).join(", ") || "(none)"}. Omit the version for "Unscheduled".`
+    );
+  }
+  return { id: Number(hit.id), name: hit.name };
+}
+function cyclesFromResponse(raw) {
+  const out = [];
+  const collect = (map) => {
+    for (const [id, cycle] of Object.entries(map ?? {})) {
+      if (id === "recordsCount" || !cycle || typeof cycle !== "object" || Array.isArray(cycle)) continue;
+      out.push({ ...cycle, id: Number(id) });
+    }
+  };
+  for (const value of Object.values(raw ?? {})) {
+    if (Array.isArray(value)) value.forEach(collect);
+  }
+  if (out.length === 0) collect(raw);
+  return out.filter((c) => !(c.id === -1 && !c.totalExecutions && !c.totalFolders)).sort((a, b) => b.id - a.id);
+}
+function resolveExecutionStatus(statuses, requested) {
+  const wanted = String(requested).trim().toLowerCase();
+  const hit = statuses.find((s) => String(s.name).toLowerCase() === wanted) ?? statuses.find((s) => String(s.id) === wanted);
+  if (!hit) {
+    throw new JiraError(`Unknown execution status "${requested}". Available: ${statuses.map((s) => s.name).join(", ")}.`);
+  }
+  return hit;
+}
+function toZephyrDate(iso, label) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso).trim());
+  const date3 = match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))) : null;
+  if (!date3 || date3.getUTCDate() !== Number(match[3])) {
+    throw new JiraError(`${label} must be a date in the form YYYY-MM-DD, e.g. "2026-12-01".`);
+  }
+  return `${date3.getUTCDate()}/${MONTHS[date3.getUTCMonth()]}/${String(date3.getUTCFullYear()).slice(2)}`;
+}
+async function addSteps(config2, client, issueId, steps, consume) {
+  let added = 0;
+  for (const step of steps) {
+    try {
+      consume(config2, "write");
+      await client.addTestStep(config2, issueId, { step: step.step.trim(), data: step.data ?? "", result: step.result ?? "" });
+      added += 1;
+    } catch (err) {
+      return { added, error: err?.message ?? String(err) };
+    }
+  }
+  return { added };
+}
+
+// plugins/jira-tools/src/tools/list-test-cycles.mjs
+var DETAIL_LIMIT = 2e3;
+function summaryCounts(cycle) {
+  return (cycle.executionSummaries?.executionSummary ?? []).filter((s) => s.count > 0).sort((a, b) => b.count - a.count).map((s) => `${s.statusName} ${s.count}`).join(" \xB7 ");
+}
+var list_test_cycles_default = {
+  name: "list_test_cycles",
+  config: {
+    title: "List Zephyr test cycles",
+    description: "Zephyr Squad test cycles (test runs / test plans) of a project: id, name, version, environment, build, dates, progress (executed/total, folders included) and status counts. With cycle_id: the detail of one cycle \u2014 status counts (PASS/FAIL/...) and per-folder progress. For the executions themselves use search_test_executions with ZQL `cycleId = <id>`.",
+    inputSchema: {
+      project: external_exports.string().describe('Project key, e.g. "PROJ"'),
+      version: external_exports.string().optional().describe('Version name; omit for all versions, "Unscheduled" for none'),
+      cycle_id: external_exports.number().int().optional().describe("Cycle id for the detail of one cycle")
+    }
+  },
+  /**
+   * @param {{project: string, version?: string, cycle_id?: number}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ project, version: version2, cycle_id }, { config: config2, client }) {
+    const proj = await resolveZephyrProject(config2, client, project);
+    if (cycle_id !== void 0) {
+      const cycle = await client.getTestCycle(config2, cycle_id);
+      if (String(cycle.projectId) !== proj.id) {
+        throw new JiraError(`Cycle ${cycle_id} belongs to another project, not ${proj.key}.`);
+      }
+      const [folders, result] = await Promise.all([
+        client.listCycleFolders(config2, cycle_id, { projectId: proj.id, versionId: cycle.versionId }),
+        client.searchExecutions(config2, { zql: `cycleId = ${cycle_id}`, limit: DETAIL_LIMIT })
+      ]);
+      const executed = result.executions.filter((e) => String(e.executionStatus) !== "-1").length;
+      const out = [formatCycleLine({ ...cycle, id: cycle_id }, { executed, total: result.total, folders: folders.length })];
+      if (cycle.description) out.push(`Description: ${cycle.description}`);
+      out.push(`${config2.server}/projects/${proj.key}?selectedItem=com.thed.zephyr.je:zephyr-tests-page#test-cycles-tab`);
+      out.push("", result.executions.length ? `Statuses: ${formatStatusCounts(result.executions)}` : "Statuses: no executions yet.");
+      if (result.executions.length < result.total) out.push(`(counted ${result.executions.length} of ${result.total})`);
+      if (folders.length) {
+        out.push("", `FOLDERS (${folders.length}):`);
+        for (const f of folders) {
+          out.push(`- #${f.folderId} ${f.folderName} \xB7 executed ${f.totalExecuted ?? 0}/${f.totalExecutions ?? 0}`);
+        }
+      }
+      return out.join("\n");
+    }
+    const versionId = version2 === void 0 ? void 0 : (await resolveVersion(config2, client, proj.key, version2)).id;
+    const cycles = cyclesFromResponse(await client.listTestCycles(config2, proj.id, { versionId }));
+    if (cycles.length === 0) {
+      return `No test cycles in ${proj.key}${version2 ? ` for version "${version2}"` : ""}.`;
+    }
+    const lines = [`Test cycles in ${proj.key} (${cycles.length}, newest first):`];
+    for (const cycle of cycles) {
+      const line = formatCycleLine(cycle, {
+        executed: cycle.totalExecuted ?? 0,
+        total: cycle.totalExecutions ?? 0,
+        folders: cycle.totalFolders ?? 0
+      });
+      const counts = summaryCounts(cycle);
+      lines.push(counts ? `${line} (${counts})` : line);
+    }
+    return lines.join("\n");
+  }
+};
+
+// plugins/jira-tools/src/tools/search-test-executions.mjs
+var search_test_executions_default = {
+  name: "search_test_executions",
+  config: {
+    title: "Search Zephyr test executions (ZQL)",
+    description: 'Run a Zephyr Query Language (ZQL) search over test executions (a test placed in a cycle). Returns one line per execution: execution id (needed by set_execution_status), status, test key and title, cycle / folder, version, who executed it and when, defects, comment, plus status counts. ZQL clauses: project, issue, cycleId, cycleName, folderId, folderName, fixVersion, executionStatus, executedBy, assignee, executionDate, creationDate, labels, component, priority, summary. Quote values with spaces. An unknown key in `issue in (...)` fails the whole query. Examples: `project = PROJ AND cycleName = "Release 12" AND executionStatus = FAIL`, `issue = PROJ-450`, `cycleId = 70 AND executionStatus = UNEXECUTED`.',
+    inputSchema: {
+      zql: external_exports.string().min(1).describe("ZQL query"),
+      max_results: external_exports.number().int().min(1).max(500).optional().describe("Default 50, max 500")
+    }
+  },
+  /**
+   * @param {{zql: string, max_results?: number}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ zql, max_results = 50 }, { config: config2, client }) {
+    const page = await client.searchExecutions(config2, { zql: zql.trim(), limit: max_results });
+    return formatExecutionList(page);
+  }
+};
+
+// plugins/jira-tools/src/tools/get-test-case.mjs
+var EXECUTION_LIMIT = 20;
+var DESCRIPTION_LIMIT2 = 4e3;
+var get_test_case_default = {
+  name: "get_test_case",
+  config: {
+    title: "Get Zephyr test case",
+    description: `One Zephyr test case (Jira issue of type "Test"): status, labels, components, description, all test steps (action, test data, expected result) and its last ${EXECUTION_LIMIT} executions (cycle / folder, status, who, when).`,
+    inputSchema: {
+      key: external_exports.string().describe('Test issue key, e.g. "PROJ-450"')
+    }
+  },
+  /**
+   * @param {{key: string}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ key }, { config: config2, client }) {
+    const issueKey = key.trim().toUpperCase();
+    const issue2 = await client.getIssue(config2, issueKey, {
+      fields: ["summary", "status", "issuetype", "priority", "assignee", "labels", "components", "description"]
+    });
+    const f = issue2.fields ?? {};
+    if (!isZephyrTestType(f.issuetype)) {
+      throw new JiraError(`${issueKey} is a ${f.issuetype?.name ?? "?"}, not a Zephyr test \u2014 use get_issue.`);
+    }
+    const [steps, runs] = await Promise.all([
+      client.getTestSteps(config2, issue2.id),
+      client.searchExecutions(config2, { zql: `issue = ${issueKey} ORDER BY executionDate DESC`, limit: EXECUTION_LIMIT })
+    ]);
+    const out = [
+      `${issueKey} \u2014 ${f.summary ?? "(no title)"}`,
+      `${f.issuetype?.name} \xB7 ${f.priority?.name ?? "?"} \xB7 ${f.status?.name ?? "?"} \xB7 ${f.assignee?.displayName ?? "Unassigned"}`
+    ];
+    const meta = [];
+    if ((f.components ?? []).length) meta.push(`components: ${f.components.map((c) => c.name).join(", ")}`);
+    if ((f.labels ?? []).length) meta.push(`labels: ${f.labels.join(", ")}`);
+    if (meta.length) out.push(meta.join(" \xB7 "));
+    out.push(`${config2.server}/browse/${issueKey}`);
+    let description = String(f.description ?? "").trim();
+    if (description.length > DESCRIPTION_LIMIT2) description = `${description.slice(0, DESCRIPTION_LIMIT2)}
+\u2026 (description truncated)`;
+    if (description) out.push("", "DESCRIPTION:", description);
+    out.push(...formatTestSteps(steps));
+    out.push("", runs.total ? `EXECUTIONS (${runs.executions.length < runs.total ? `last ${runs.executions.length} of ${runs.total}` : runs.total}):` : "EXECUTIONS: none \u2014 the test is not in any cycle yet.");
+    for (const e of runs.executions) out.push(formatExecutionLine(e));
+    return out.join("\n");
+  }
+};
+
+// plugins/jira-tools/src/tools/create-test-cases.mjs
+var MAX_ITEMS2 = 25;
+function normalize2(s) {
+  return String(s ?? "").toLowerCase().replaceAll(/\s+/g, " ").trim();
+}
+function describeError2(error2) {
+  const parts = [
+    ...error2.elementErrors?.errorMessages ?? [],
+    ...Object.entries(error2.elementErrors?.errors ?? {}).map(([field, message]) => `${field}: ${message}`)
+  ];
+  return parts.join("; ") || `HTTP ${error2.status ?? "?"}`;
+}
+var TEST_CASE_INPUT = {
+  summary: external_exports.string().min(5).describe('Test case title, e.g. "Login with a valid e-mail and password"'),
+  description: external_exports.string().optional().describe(
+    'Preconditions and context in Markdown \u2014 converted to Jira wiki markup. Set description_format="wiki" to pass wiki markup through unchanged'
+  ),
+  description_format: external_exports.enum(["markdown", "wiki"]).optional().describe('Format of description; default "markdown"'),
+  steps: external_exports.array(TEST_STEP_INPUT).max(MAX_STEPS).optional().describe(`Test steps in order (max ${MAX_STEPS})`),
+  components: external_exports.array(external_exports.string()).optional().describe('Component names, e.g. ["Web"]'),
+  labels: external_exports.array(external_exports.string()).optional(),
+  assignee: external_exports.string().optional().describe("Jira username to assign"),
+  allow_duplicate: external_exports.boolean().optional().describe("Set true ONLY when the user explicitly confirmed creating a near-duplicate")
+};
+var create_test_cases_default = {
+  name: "create_test_cases",
+  config: {
+    title: "Create Zephyr test cases (WRITE)",
+    description: `Create 1 to ${MAX_ITEMS2} Zephyr test cases (Jira issues of type "Test") in ONE call, each with up to ${MAX_STEPS} steps (action, test data, expected result). Call it ONLY after the /jira-tools:test-cases dry-run and the user's explicit confirmation. Each test gets the ai-generated label. The whole batch (tests + steps) must fit the session write budget or nothing is created; an open issue with the same title blocks the batch unless allow_duplicate=true. Returns the keys; link them to the story with link_issues and put them into a cycle with add_tests_to_cycle.`,
+    inputSchema: {
+      project: external_exports.string().describe('Project key, e.g. "PROJ"'),
+      items: external_exports.array(external_exports.object(TEST_CASE_INPUT)).min(1).max(MAX_ITEMS2).describe(`Test cases to create, in order (max ${MAX_ITEMS2})`)
+    }
+  },
+  /**
+   * @param {{project: string, items: object[]}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run(args, { config: config2, client }) {
+    const { items } = args;
+    const stepCount = items.reduce((n, item) => n + (item.steps?.length ?? 0), 0);
+    assertWriteBudget(config2, "create", items.length);
+    assertWriteBudget(config2, "write", items.length + stepCount);
+    const proj = await resolveZephyrProject(config2, client, args.project, { requireTestType: true });
+    const projectTypes = await loadProjectTypes(config2, client, proj.key);
+    const rules = items.some((item) => item.assignee) ? await loadRulesForWrite(config2, client, proj.key) : { componentRules: [] };
+    const seen = /* @__PURE__ */ new Set();
+    const payload = [];
+    const ruleNotes = [];
+    for (const [index, item] of items.entries()) {
+      const summary = item.summary.trim();
+      if (!item.allow_duplicate) {
+        if (seen.has(normalize2(summary))) {
+          throw new JiraError(
+            `Nothing created \u2014 item ${index + 1} ("${summary}") repeats an earlier item in this batch. Set allow_duplicate=true on it if that is intended.`
+          );
+        }
+        const duplicate = await findDuplicate(config2, client, proj.key, summary);
+        if (duplicate) {
+          throw new JiraError(
+            `Nothing created \u2014 item ${index + 1} ("${summary}") duplicates ${duplicate.key} (\u201E${duplicate.fields?.summary}"). Set allow_duplicate=true on it if the user confirmed it.`
+          );
+        }
+      }
+      seen.add(normalize2(summary));
+      const { fields, ruleComponents } = await buildIssueFields(
+        { ...item, issue_type: proj.testType },
+        { config: config2, client, project: proj.key, projectTypes, componentRules: rules.componentRules }
+      );
+      payload.push(fields);
+      ruleNotes.push(ruleComponents.length ? ` \xB7 +${ruleComponents.join(", ")} (project rule)` : "");
+    }
+    const result = await client.createIssuesBulk(config2, payload);
+    const created = result?.issues ?? [];
+    const failed = new Map((result?.errors ?? []).map((error2) => [error2.failedElementNumber, error2]));
+    for (let n = 0; n < created.length; n += 1) consumeWriteBudget(config2, "create");
+    const lines = [`Created ${created.length}/${items.length} test cases in ${proj.key}:`];
+    let next = 0;
+    let stepFailures = 0;
+    for (const [index, item] of items.entries()) {
+      const summary = item.summary.trim();
+      const error2 = failed.get(index);
+      if (error2) {
+        lines.push(`- item ${index + 1} "${summary}": FAILED \u2014 ${describeError2(error2)}`);
+        continue;
+      }
+      const issue2 = created[next];
+      next += 1;
+      const steps = item.steps ?? [];
+      let stepNote = "no steps";
+      if (steps.length) {
+        const outcome = await addSteps(config2, client, issue2.id, steps, consumeWriteBudget);
+        stepNote = `${outcome.added}/${steps.length} steps`;
+        if (outcome.error) {
+          stepFailures += 1;
+          stepNote += ` \u2014 step ${outcome.added + 1} FAILED: ${outcome.error}`;
+        }
+      }
+      lines.push(`- ${issue2.key} "${summary}" \xB7 ${stepNote}${ruleNotes[index]} \u2014 ${config2.server}/browse/${issue2.key}`);
+    }
+    if (failed.size) {
+      lines.push(`${failed.size} test case(s) failed \u2014 fix and create those again; the created ones are NOT rolled back.`);
+    }
+    if (stepFailures) {
+      lines.push("Add the missing steps with add_test_steps (only the steps after the last one added).");
+    }
+    if (rules.warning) lines.push(rules.warning);
+    return lines.join("\n");
+  }
+};
+
+// plugins/jira-tools/src/tools/add-test-steps.mjs
+var add_test_steps_default = {
+  name: "add_test_steps",
+  config: {
+    title: "Add Zephyr test steps (WRITE)",
+    description: `Append up to ${MAX_STEPS} steps (action, test data, expected result) to ONE existing Zephyr test, after its current steps. Existing steps are not changed. Each step counts against the per-session write budget.`,
+    inputSchema: {
+      key: external_exports.string().describe('Test issue key, e.g. "PROJ-450"'),
+      steps: external_exports.array(TEST_STEP_INPUT).min(1).max(MAX_STEPS).describe("Steps to append, in order")
+    }
+  },
+  /**
+   * @param {{key: string, steps: object[]}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ key, steps }, { config: config2, client }) {
+    const issueKey = key.trim().toUpperCase();
+    assertWriteBudget(config2, "write", steps.length);
+    const issue2 = await client.getIssue(config2, issueKey, { fields: ["issuetype", "summary"] });
+    if (!isZephyrTestType(issue2.fields?.issuetype)) {
+      throw new JiraError(`${issueKey} is a ${issue2.fields?.issuetype?.name ?? "?"}, not a Zephyr test \u2014 steps exist only on tests.`);
+    }
+    const outcome = await addSteps(config2, client, issue2.id, steps, consumeWriteBudget);
+    const head = `Added ${outcome.added}/${steps.length} steps to ${issueKey} \u2014 ${config2.server}/browse/${issueKey}`;
+    return outcome.error ? `${head}
+Step ${outcome.added + 1} FAILED: ${outcome.error}` : head;
+  }
+};
+
+// plugins/jira-tools/src/tools/create-test-cycle.mjs
+var create_test_cycle_default = {
+  name: "create_test_cycle",
+  config: {
+    title: "Create Zephyr test cycle (WRITE)",
+    description: 'Create ONE Zephyr test cycle (test plan / test run) in a project version (default "Unscheduled"). Returns the cycle id for add_tests_to_cycle. Dates are optional, YYYY-MM-DD. Refuses when the version already has a cycle with the same name, unless allow_duplicate=true. Counts against the per-session write budget.',
+    inputSchema: {
+      project: external_exports.string().describe('Project key, e.g. "PROJ"'),
+      name: external_exports.string().min(1).describe('Cycle name, e.g. "Release 12 regression"'),
+      version: external_exports.string().optional().describe('Version name; default "Unscheduled"'),
+      description: external_exports.string().optional(),
+      build: external_exports.string().optional().describe('Build under test, e.g. "3.11.0 (2867)"'),
+      environment: external_exports.string().optional().describe('Environment, e.g. "UAT"'),
+      start_date: external_exports.string().optional().describe("Planned start, YYYY-MM-DD"),
+      end_date: external_exports.string().optional().describe("Planned end, YYYY-MM-DD"),
+      allow_duplicate: external_exports.boolean().optional().describe("Create even though a cycle with this name exists \u2014 only after the user explicitly confirmed it")
+    }
+  },
+  /**
+   * @param {{project: string, name: string, version?: string, description?: string, build?: string, environment?: string, start_date?: string, end_date?: string, allow_duplicate?: boolean}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run(args, { config: config2, client }) {
+    const name = args.name.trim();
+    if (!name) throw new JiraError("Cycle name must not be empty.");
+    const startDate = args.start_date ? toZephyrDate(args.start_date, "start_date") : void 0;
+    const endDate = args.end_date ? toZephyrDate(args.end_date, "end_date") : void 0;
+    if (startDate && endDate && args.end_date.trim() < args.start_date.trim()) {
+      throw new JiraError("end_date must not be before start_date.");
+    }
+    const proj = await resolveZephyrProject(config2, client, args.project, { requireTestType: true });
+    const version2 = await resolveVersion(config2, client, proj.key, args.version);
+    if (!args.allow_duplicate) {
+      const cycles = cyclesFromResponse(await client.listTestCycles(config2, proj.id, { versionId: version2.id }));
+      const duplicate = cycles.find((c) => String(c.name ?? "").trim().toLowerCase() === name.toLowerCase());
+      if (duplicate) {
+        throw new JiraError(
+          `Not created \u2014 version "${version2.name}" of ${proj.key} already has a test cycle named "${duplicate.name}" (id ${duplicate.id}). If a second one is intended and the user confirmed it, call again with allow_duplicate=true.`
+        );
+      }
+    }
+    const description = args.description?.trim() ? `${args.description.trim()}
+
+${AI_SIGNATURE}` : AI_SIGNATURE;
+    consumeWriteBudget(config2, "write");
+    const created = await client.createTestCycle(config2, {
+      projectId: proj.id,
+      versionId: version2.id,
+      name,
+      description,
+      build: args.build,
+      environment: args.environment,
+      startDate,
+      endDate
+    });
+    return `Created test cycle "${name}" (id ${created?.id ?? "?"}) in ${proj.key} / ${version2.name} \u2014 ${config2.server}/projects/${proj.key}?selectedItem=com.thed.zephyr.je:zephyr-tests-page#test-cycles-tab`;
+  }
+};
+
+// plugins/jira-tools/src/tools/add-tests-to-cycle.mjs
+var MAX_KEYS3 = 50;
+var LOOKUP_CHUNK = 10;
+var EXISTING_LIMIT = 2e3;
+async function lookupIssues(config2, client, keys) {
+  const found = /* @__PURE__ */ new Map();
+  for (let i = 0; i < keys.length; i += LOOKUP_CHUNK) {
+    const chunk = keys.slice(i, i + LOOKUP_CHUNK);
+    const issues = await Promise.all(chunk.map((key) => client.getIssue(config2, key, { fields: ["issuetype", "summary", "project"] }).catch((err) => err?.status === 404 ? null : Promise.reject(err))));
+    chunk.forEach((key, n) => found.set(key, issues[n]));
+  }
+  return found;
+}
+var add_tests_to_cycle_default = {
+  name: "add_tests_to_cycle",
+  config: {
+    title: "Add tests to a Zephyr cycle (WRITE)",
+    description: `Add up to ${MAX_KEYS3} Zephyr tests (keys or ranges like "PROJ-98..111") to ONE test cycle, optionally into one of its folders (folder ids: list_test_cycles with cycle_id). Each test becomes an UNEXECUTED execution; the returned execution ids are what set_execution_status needs. Nothing is added when a key is unknown, not a Zephyr test, or from another project. Tests already in the cycle (same folder) are skipped. Each added test counts against the per-session write budget.`,
+    inputSchema: {
+      cycle_id: external_exports.number().int().describe("Cycle id (from list_test_cycles or create_test_cycle)"),
+      keys: external_exports.array(external_exports.string()).min(1).describe('Test keys or ranges, e.g. ["PROJ-30", "PROJ-41..45"]'),
+      folder_id: external_exports.number().int().optional().describe("Folder id inside the cycle; omit for the cycle root")
+    }
+  },
+  /**
+   * @param {{cycle_id: number, keys: string[], folder_id?: number}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ cycle_id, keys, folder_id }, { config: config2, client }) {
+    const wanted = expandKeys(keys);
+    if (wanted.length > MAX_KEYS3) {
+      throw new JiraError(`Too many tests (${wanted.length}). Add at most ${MAX_KEYS3} per call.`);
+    }
+    const cycle = await client.getTestCycle(config2, cycle_id);
+    const scope = { projectId: cycle.projectId, versionId: cycle.versionId };
+    let where = `cycle "${cycle.name}" (id ${cycle_id})`;
+    if (folder_id !== void 0) {
+      const folders = await client.listCycleFolders(config2, cycle_id, scope);
+      const folder = folders.find((f) => Number(f.folderId) === folder_id);
+      if (!folder) {
+        const list = folders.map((f) => `#${f.folderId} ${f.folderName}`).join(", ") || "(none)";
+        throw new JiraError(`Folder ${folder_id} is not in cycle ${cycle_id}. Folders: ${list}.`);
+      }
+      where += ` / folder "${folder.folderName}"`;
+    }
+    const issues = await lookupIssues(config2, client, wanted);
+    const missing = wanted.filter((key) => !issues.get(key));
+    const notTests = wanted.filter((key) => issues.get(key) && !isZephyrTestType(issues.get(key).fields?.issuetype));
+    const otherProject = wanted.filter((key) => issues.get(key) && String(issues.get(key).fields?.project?.id) !== String(cycle.projectId));
+    if (missing.length || notTests.length || otherProject.length) {
+      const problems = [];
+      if (missing.length) problems.push(`not found: ${missing.join(", ")}`);
+      if (notTests.length) problems.push(`not Zephyr tests: ${notTests.join(", ")}`);
+      if (otherProject.length) problems.push(`from another project than the cycle: ${otherProject.join(", ")}`);
+      throw new JiraError(`Nothing added \u2014 ${problems.join("; ")}.`);
+    }
+    const existing = await client.searchExecutions(config2, { zql: `cycleId = ${cycle_id}`, limit: EXISTING_LIMIT });
+    const inScope = new Map(existing.executions.filter((e) => folder_id === void 0 ? e.folderId === void 0 || e.folderId === null : Number(e.folderId) === folder_id).map((e) => [String(e.issueKey).toUpperCase(), e.id]));
+    const toAdd = wanted.filter((key) => !inScope.has(key));
+    assertWriteBudget(config2, "write", toAdd.length);
+    const lines = [];
+    let added = 0;
+    for (const key of toAdd) {
+      try {
+        consumeWriteBudget(config2, "write");
+        const execution = await client.createExecution(config2, {
+          issueId: issues.get(key).id,
+          cycleId: cycle_id,
+          ...scope,
+          folderId: folder_id
+        });
+        added += 1;
+        lines.push(`- ${key} \u2192 execution #${execution?.id ?? "?"}`);
+      } catch (err) {
+        lines.push(`- ${key}: FAILED \u2014 ${err?.message ?? err}`);
+      }
+    }
+    const skipped = wanted.filter((key) => inScope.has(key));
+    const out = [`Added ${added}/${toAdd.length} tests to ${where}:`, ...lines];
+    if (toAdd.length === 0) out[0] = `Nothing to add \u2014 every test is already in ${where}.`;
+    if (skipped.length) {
+      out.push(`Already in the cycle (skipped): ${skipped.map((key) => `${key} (#${inScope.get(key)})`).join(", ")}`);
+    }
+    return out.join("\n");
+  }
+};
+
+// plugins/jira-tools/src/tools/set-execution-status.mjs
+var MAX_EXECUTIONS = 50;
+var set_execution_status_default = {
+  name: "set_execution_status",
+  config: {
+    title: "Set Zephyr execution status (WRITE)",
+    description: `Record a test result: set ONE status (PASS, FAIL, WIP, BLOCKED, UNEXECUTED or a custom one, matched case-insensitively) on up to ${MAX_EXECUTIONS} executions. Execution ids come from search_test_executions or add_tests_to_cycle. An optional comment (e.g. what failed) replaces the execution comment and gets the AI signature; without a comment the existing one stays. Each execution counts against the per-session write budget.`,
+    inputSchema: {
+      execution_ids: external_exports.array(external_exports.number().int()).min(1).max(MAX_EXECUTIONS).describe("Execution ids, e.g. [9001]"),
+      status: external_exports.string().min(1).describe('Status name, e.g. "PASS" or "FAIL"'),
+      comment: external_exports.string().optional().describe("Execution comment, e.g. the actual result of a failed step")
+    }
+  },
+  /**
+   * @param {{execution_ids: number[], status: string, comment?: string}} args
+   * @param {{config: object, client: object}} ctx
+   * @returns {Promise<string>}
+   */
+  async run({ execution_ids, status, comment }, { config: config2, client }) {
+    const ids = [...new Set(execution_ids)];
+    const target = resolveExecutionStatus(await client.listExecutionStatuses(config2), status);
+    assertWriteBudget(config2, "write", ids.length);
+    const text = comment?.trim() ? `${comment.trim()}
+
+${AI_SIGNATURE}` : void 0;
+    const lines = [];
+    let done = 0;
+    for (const id of ids) {
+      try {
+        consumeWriteBudget(config2, "write");
+        const execution = await client.updateExecutionStatus(config2, id, { status: target.id, comment: text });
+        done += 1;
+        const where = execution?.cycleName ? ` \xB7 ${execution.cycleName}${execution.folderName ? ` / ${execution.folderName}` : ""}` : "";
+        lines.push(`- #${id} ${execution?.issueKey ?? ""}${where}`.trimEnd());
+      } catch (err) {
+        lines.push(`- #${id}: FAILED \u2014 ${err?.message ?? err}`);
+      }
+    }
+    return [`Set ${target.name} on ${done}/${ids.length} executions:`, ...lines].join("\n");
+  }
+};
+
 // plugins/jira-tools/src/tools/index.mjs
 var readTools = [
   search_issues_default,
@@ -22828,8 +23889,12 @@ var readTools = [
   get_issue_changelog_default,
   get_current_user_default,
   get_project_config_default,
+  get_project_rules_default,
   get_version_default,
-  download_update_default
+  download_update_default,
+  list_test_cycles_default,
+  search_test_executions_default,
+  get_test_case_default
 ];
 var writeTools = [
   create_issue_default,
@@ -22840,7 +23905,13 @@ var writeTools = [
   transition_issue_default,
   assign_to_epic_default,
   link_issues_default,
-  create_sprint_default
+  create_sprint_default,
+  set_project_rules_default,
+  create_test_cases_default,
+  add_test_steps_default,
+  create_test_cycle_default,
+  add_tests_to_cycle_default,
+  set_execution_status_default
 ];
 
 // plugins/jira-tools/src/server.mjs

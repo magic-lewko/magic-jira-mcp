@@ -3,4 +3,4 @@
  * Bump it together with package.json and
  * plugins/jira-tools/.claude-plugin/plugin.json on every release.
  */
-export const VERSION = '0.8.1'
+export const VERSION = '0.9.0'

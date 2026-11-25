@@ -20,5 +20,5 @@ Find the bug the user means. Respond in the user's language. The description: $A
 
 ## Variants
 
-- **"Does such a bug already exist?"** (dedup before filing): same search; answer explicitly "exists: KEY (status)" or "not found — you can report it", listing near-matches.
+- **"Does such a bug already exist?"** (dedup before filing): same search; answer explicitly "exists: KEY (status)" or "not found — you can report it with `/jira-tools:create-task`", listing near-matches.
 - **"List open bugs about X"**: `project = <PROJECT> AND issuetype = Bug AND text ~ "X" AND status in ("To Do", "In Progress", "Code Review")` (status list from the project profile when available; add "To Fix" if the profile has it). Summarize each bug in one line — goal: a quick "what's already reported" overview.

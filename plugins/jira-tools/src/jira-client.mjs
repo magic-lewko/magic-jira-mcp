@@ -349,6 +349,52 @@ export function getBoardConfiguration(config, boardId) {
   return jiraFetch(config, `/rest/agile/1.0/board/${boardId}/configuration`, { what: `board configuration for ${boardId}` })
 }
 
+/**
+ * Path of one project property (Jira entity property: a JSON value stored on
+ * the project, readable by everyone with Browse Projects).
+ *
+ * @param {string} projectKey
+ * @param {string} propertyKey
+ * @returns {string}
+ */
+function projectPropertyPath(projectKey, propertyKey) {
+  return `/rest/api/2/project/${encodeURIComponent(projectKey)}/properties/${encodeURIComponent(propertyKey)}`
+}
+
+/**
+ * Value of one project property, or null when the property is not set.
+ *
+ * @param {object} config
+ * @param {string} projectKey
+ * @param {string} propertyKey
+ * @returns {Promise<any|null>}
+ */
+export async function getProjectProperty(config, projectKey, propertyKey) {
+  try {
+    const res = await jiraFetch(config, projectPropertyPath(projectKey, propertyKey), {
+      what: `property "${propertyKey}" of project ${projectKey}`,
+    })
+    return res?.value ?? null
+  } catch (err) {
+    if (err instanceof JiraError && err.status === 404) return null
+    throw err
+  }
+}
+
+/**
+ * Active users matching a text (Jira Server matches the username, the
+ * display name and the e-mail).
+ *
+ * @param {object} config
+ * @param {string} text
+ * @returns {Promise<{name: string, displayName: string}[]>}
+ */
+export function findUsers(config, text) {
+  return jiraFetch(config, `/rest/api/2/user/search${query({ username: text, maxResults: 20 })}`, {
+    what: `user search "${text}"`,
+  })
+}
+
 // --- write operations (Phase 2, registered only behind JIRA_ALLOW_WRITE) ----
 
 /**
@@ -527,4 +573,213 @@ export function createSprint(config, { boardId, name, goal, startDate, endDate }
   if (startDate) body.startDate = startDate
   if (endDate) body.endDate = endDate
   return jiraFetch(config, '/rest/agile/1.0/sprint', { method: 'POST', body, what: `create sprint "${name}"` })
+}
+
+/**
+ * Create or replace one project property (Jira answers 200 or 201 with an
+ * empty body). Needs the Administer Projects permission.
+ *
+ * @param {object} config
+ * @param {string} projectKey
+ * @param {string} propertyKey
+ * @param {object} value - JSON value
+ * @returns {Promise<null>}
+ */
+export function setProjectProperty(config, projectKey, propertyKey, value) {
+  return jiraFetch(config, projectPropertyPath(projectKey, propertyKey), {
+    method: 'PUT', body: value, what: `property "${propertyKey}" of project ${projectKey}`,
+  })
+}
+
+// --- Zephyr Squad Server (ZAPI) ----------------------------------------------
+
+/** Zephyr Squad Server REST base; same host, same Bearer PAT as Jira. */
+const ZAPI = '/rest/zapi/latest'
+
+/**
+ * jiraFetch for ZAPI paths. Zephyr sometimes reports a failure with HTTP 200
+ * and an `errorDesc`/`errorId: "ERROR"` or `error` body — surface it as a JiraError.
+ *
+ * @param {object} config
+ * @param {string} path - path below /rest/zapi/latest, starting with "/"
+ * @param {{method?: string, body?: object, what?: string}} [opts]
+ * @returns {Promise<any>}
+ */
+async function zapiFetch(config, path, opts = {}) {
+  const res = await jiraFetch(config, `${ZAPI}${path}`, opts)
+  if (res && typeof res === 'object' && !Array.isArray(res)) {
+    const message = res.errorId === 'ERROR' ? res.errorDesc : (typeof res.error === 'string' ? res.error : undefined)
+    if (message) throw new JiraError(`Zephyr refused ${opts.what ?? path}: ${String(message).slice(0, 300)}`)
+  }
+  return res
+}
+
+/**
+ * Versions of a project (Zephyr cycles live per version; -1 = Unscheduled).
+ *
+ * @param {object} config
+ * @param {string} projectKey
+ * @returns {Promise<{id: string, name: string, released?: boolean, archived?: boolean}[]>}
+ */
+export function listProjectVersions(config, projectKey) {
+  return jiraFetch(config, `/rest/api/2/project/${encodeURIComponent(projectKey)}/versions`, {
+    what: `versions of project ${projectKey}`,
+  })
+}
+
+/**
+ * Test execution statuses of the instance (PASS, FAIL, WIP, BLOCKED, UNEXECUTED, custom ones).
+ *
+ * @param {object} config
+ * @returns {Promise<{id: number, name: string}[]>}
+ */
+export function listExecutionStatuses(config) {
+  return zapiFetch(config, '/util/testExecutionStatus', { what: 'Zephyr execution statuses (is Zephyr Squad installed?)' })
+}
+
+/**
+ * Test cycles of a project. With a versionId Zephyr answers a flat map
+ * `{cycleId: cycle, recordsCount}`; without one, a map `{versionId: [{cycleId: cycle}]}`.
+ * Use cyclesFromResponse() to flatten either shape. Without
+ * expand=executionSummaries Zephyr leaves the totals at 0.
+ *
+ * @param {object} config
+ * @param {number|string} projectId
+ * @param {{versionId?: number|string}} [opts]
+ * @returns {Promise<object>}
+ */
+export function listTestCycles(config, projectId, { versionId } = {}) {
+  return zapiFetch(config, `/cycle${query({ projectId, versionId, expand: 'executionSummaries' })}`, {
+    what: `Zephyr test cycles of project ${projectId} (is Zephyr Squad installed?)`,
+  })
+}
+
+/**
+ * One test cycle: name, projectId, versionId, environment, build, dates.
+ *
+ * @param {object} config
+ * @param {number} cycleId
+ * @returns {Promise<object>}
+ */
+export function getTestCycle(config, cycleId) {
+  return zapiFetch(config, `/cycle/${cycleId}`, { what: `Zephyr test cycle ${cycleId}` })
+}
+
+/**
+ * Folders of a test cycle with their execution totals.
+ *
+ * @param {object} config
+ * @param {number} cycleId
+ * @param {{projectId: number|string, versionId: number|string}} scope
+ * @returns {Promise<object[]>}
+ */
+export async function listCycleFolders(config, cycleId, { projectId, versionId }) {
+  const path = `/cycle/${cycleId}/folders${query({ projectId, versionId, limit: 200, offset: 0 })}`
+  const folders = await zapiFetch(config, path, { what: `folders of Zephyr cycle ${cycleId}` })
+  return Array.isArray(folders) ? folders : []
+}
+
+/**
+ * Executions matching a ZQL query, paged by absolute offset, capped at `limit`.
+ *
+ * @param {object} config
+ * @param {{zql: string, limit?: number}} params
+ * @returns {Promise<{executions: object[], total: number}>}
+ */
+export async function searchExecutions(config, { zql, limit = 50 }) {
+  const executions = []
+  let total = Infinity
+  while (executions.length < Math.min(total, limit)) {
+    const maxRecords = Math.min(100, limit - executions.length)
+    const path = `/zql/executeSearch${query({ zqlQuery: zql, offset: executions.length, maxRecords })}`
+    const page = await zapiFetch(config, path, { what: `ZQL "${zql}"` })
+    total = page.totalCount ?? 0
+    const batch = page.executions ?? []
+    if (batch.length === 0) break
+    executions.push(...batch)
+  }
+  return { executions: executions.slice(0, limit), total: Number.isFinite(total) ? total : executions.length }
+}
+
+/**
+ * Steps of a Zephyr test (by Jira issue id, not key).
+ *
+ * @param {object} config
+ * @param {number|string} issueId
+ * @returns {Promise<{id: number, orderId: number, step: string, data: string, result: string}[]>}
+ */
+export async function getTestSteps(config, issueId) {
+  const res = await zapiFetch(config, `/teststep/${issueId}`, { what: `test steps of issue ${issueId}` })
+  if (Array.isArray(res)) return res
+  return res?.stepBeanCollection ?? []
+}
+
+/**
+ * Append ONE step to a Zephyr test.
+ *
+ * @param {object} config
+ * @param {number|string} issueId
+ * @param {{step: string, data?: string, result?: string}} step
+ * @returns {Promise<object>}
+ */
+export function addTestStep(config, issueId, { step, data = '', result = '' }) {
+  return zapiFetch(config, `/teststep/${issueId}`, {
+    method: 'POST', body: { step, data, result }, what: `add test step to issue ${issueId}`,
+  })
+}
+
+/**
+ * Create ONE test cycle. Dates use Jira's date-picker format (d/MMM/yy).
+ *
+ * @param {object} config
+ * @param {{projectId: number|string, versionId: number|string, name: string, description?: string, build?: string, environment?: string, startDate?: string, endDate?: string}} cycle
+ * @returns {Promise<{id: string, responseMessage?: string}>}
+ */
+export function createTestCycle(config, { projectId, versionId, name, description, build, environment, startDate, endDate }) {
+  const body = { name, projectId: String(projectId), versionId: String(versionId) }
+  if (description) body.description = description
+  if (build) body.build = build
+  if (environment) body.environment = environment
+  if (startDate) body.startDate = startDate
+  if (endDate) body.endDate = endDate
+  return zapiFetch(config, '/cycle', { method: 'POST', body, what: `create test cycle "${name}"` })
+}
+
+/**
+ * Add ONE test to a cycle (optionally into a folder) as a new execution.
+ * Zephyr answers a map keyed by the new execution id; the execution is returned.
+ *
+ * @param {object} config
+ * @param {{issueId: number|string, cycleId: number, projectId: number|string, versionId: number|string, folderId?: number}} execution
+ * @returns {Promise<object|null>}
+ */
+export async function createExecution(config, { issueId, cycleId, projectId, versionId, folderId }) {
+  const body = {
+    issueId: String(issueId), cycleId: String(cycleId), projectId: String(projectId), versionId: String(versionId),
+  }
+  if (folderId !== undefined) body.folderId = String(folderId)
+  const res = await zapiFetch(config, '/execution', {
+    method: 'POST', body, what: `add issue ${issueId} to test cycle ${cycleId}`,
+  })
+  if (res && typeof res === 'object' && res.id === undefined) {
+    const [first] = Object.values(res)
+    return first ?? null
+  }
+  return res
+}
+
+/**
+ * Set the status (and optionally the comment) of ONE execution.
+ *
+ * @param {object} config
+ * @param {number} executionId
+ * @param {{status: number|string, comment?: string}} update
+ * @returns {Promise<object>}
+ */
+export function updateExecutionStatus(config, executionId, { status, comment }) {
+  const body = { status: Number(status) }
+  if (comment !== undefined) body.comment = comment
+  return zapiFetch(config, `/execution/${executionId}/execute`, {
+    method: 'PUT', body, what: `status of execution ${executionId}`,
+  })
 }

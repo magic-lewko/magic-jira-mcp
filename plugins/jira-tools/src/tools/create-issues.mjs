@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { JiraError } from '../jira-client.mjs'
 import { assertWriteBudget, consumeWriteBudget, findDuplicate } from '../write-guard.mjs'
-import { ISSUE_ITEM_INPUT, buildIssueFields, loadProjectTypes } from '../issue-fields.mjs'
+import { ISSUE_ITEM_INPUT, buildIssueFields, createRailError, loadProjectTypes } from '../issue-fields.mjs'
+import { loadRulesForWrite } from '../project-rules.mjs'
 
 /** Jira Server's default cap for /rest/api/2/issue/bulk. */
 const MAX_ITEMS = 50
@@ -46,8 +47,10 @@ export default {
       + 'epic created in this call cannot be referenced by the same call: create the epic and the '
       + 'stories first, then the sub-tasks in a second call with parent set. Each item follows the '
       + 'create_issue rules (roles, epic_name, parent validation, Markdown → wiki, ai-generated '
-      + 'label). The whole batch must fit the session write budget or nothing is created; each '
-      + 'item passes the duplicate guard. Returns the created keys and per-item errors.',
+      + 'label, sprint_id or backlog=true per item, the standard bug template). The whole batch '
+      + 'must fit the session write budget or nothing is created; each '
+      + 'item passes the duplicate guard. Items with an assignee get the component from the '
+      + 'project\'s shared rules (get_project_rules). Returns the created keys and per-item errors.',
     inputSchema: {
       project: z.string().describe('Project key, e.g. "PROJ"'),
       items: z.array(z.object(ISSUE_ITEM_INPUT)).min(1).max(MAX_ITEMS)
@@ -68,8 +71,16 @@ export default {
     assertWriteBudget(config, 'create', items.length)
 
     const projectTypes = await loadProjectTypes(config, client, project)
+    for (const [index, item] of items.entries()) {
+      const refusal = createRailError(item, { config, project, projectTypes })
+      if (refusal) throw new JiraError(`Nothing created — item ${index + 1} ("${item.summary.trim()}"): ${refusal}`)
+    }
+    const rules = items.some((item) => item.assignee)
+      ? await loadRulesForWrite(config, client, project)
+      : { componentRules: [] }
     const seen = new Set()
     const payload = []
+    const ruleNotes = []
     for (const [index, item] of items.entries()) {
       const summary = item.summary.trim()
       const parentKey = item.parent?.trim().toUpperCase()
@@ -90,8 +101,11 @@ export default {
         }
       }
       seen.add(fingerprint)
-      const { fields } = await buildIssueFields(item, { config, client, project, projectTypes })
+      const { fields, ruleComponents } = await buildIssueFields(item, {
+        config, client, project, projectTypes, componentRules: rules.componentRules,
+      })
       payload.push(fields)
+      ruleNotes.push(ruleComponents.length ? ` · +${ruleComponents.join(', ')} (project rule)` : '')
     }
 
     const result = await client.createIssuesBulk(config, payload)
@@ -110,11 +124,12 @@ export default {
       }
       const issue = created[next]
       next += 1
-      lines.push(`- ${issue?.key ?? '?'} "${summary}" — ${config.server}/browse/${issue?.key ?? ''}`)
+      lines.push(`- ${issue?.key ?? '?'} "${summary}"${ruleNotes[index]} — ${config.server}/browse/${issue?.key ?? ''}`)
     })
     if (failed.size) {
       lines.push(`${failed.size} item(s) failed — fix and create those again; the created ones are NOT rolled back.`)
     }
+    if (rules.warning) lines.push(rules.warning)
     return lines.join('\n')
   },
 }

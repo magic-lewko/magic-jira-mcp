@@ -236,3 +236,120 @@ export function formatEpicStatus(epicKey, { issues, total }) {
   }
   return out.join('\n')
 }
+
+// --- Zephyr Squad Server -----------------------------------------------------
+
+/**
+ * @param {string} text
+ * @param {number} max
+ * @returns {string}
+ */
+function clip(text, max) {
+  const flat = String(text ?? '').replaceAll(/\s+/g, ' ').trim()
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+}
+
+/**
+ * Status name of an execution: ZQL results carry `status.name`, the execution
+ * endpoints only the id in `executionStatus`.
+ *
+ * @param {object} execution
+ * @param {Map<string, string>} [statusNames] - id → name
+ * @returns {string}
+ */
+export function executionStatusName(execution, statusNames) {
+  const id = execution.executionStatus === undefined ? undefined : String(execution.executionStatus)
+  return execution.status?.name ?? (id ? statusNames?.get(id) ?? id : '?')
+}
+
+/**
+ * One compact line per execution: id, status, test, cycle / folder, version,
+ * who and when, defects, comment.
+ *
+ * @param {object} execution - ZQL execution object
+ * @param {Map<string, string>} [statusNames]
+ * @returns {string}
+ */
+export function formatExecutionLine(execution, statusNames) {
+  const e = execution
+  const where = e.folderName ? `${e.cycleName ?? '?'} / ${e.folderName}` : (e.cycleName ?? '?')
+  const parts = [
+    `#${e.id} ${executionStatusName(e, statusNames)}`,
+    `${e.issueKey ?? '?'} — ${clip(e.issueSummary ?? e.summary ?? '(no title)', 90)}`,
+    `· ${where}`,
+    `· ${e.versionName ?? 'Unscheduled'}`,
+  ]
+  const who = e.executedByDisplay || e.executedBy
+  if (who || e.executedOn) parts.push(`· by ${who || '?'} ${e.executedOn ?? ''}`.trimEnd())
+  if (e.totalDefectCount) parts.push(`· defects: ${e.totalDefectCount}`)
+  if (e.comment) parts.push(`· comment: "${clip(e.comment, 120)}"`)
+  return parts.join(' ')
+}
+
+/**
+ * Per-status counts, most frequent first, e.g. "PASS 12 · FAIL 2 · UNEXECUTED 5".
+ *
+ * @param {object[]} executions
+ * @param {Map<string, string>} [statusNames]
+ * @returns {string}
+ */
+export function formatStatusCounts(executions, statusNames) {
+  const counts = new Map()
+  for (const e of executions) {
+    const name = executionStatusName(e, statusNames)
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} ${n}`).join(' · ')
+}
+
+/**
+ * Executions list plus the truncation note when not all results are shown.
+ *
+ * @param {{executions: object[], total: number}} page
+ * @param {Map<string, string>} [statusNames]
+ * @returns {string}
+ */
+export function formatExecutionList({ executions, total }, statusNames) {
+  if (executions.length === 0) return 'No executions.'
+  const lines = executions.map((e) => formatExecutionLine(e, statusNames))
+  const shown = executions.length < total ? `${executions.length} of ${total} shown` : `${total}`
+  lines.push('', `Statuses (${shown}): ${formatStatusCounts(executions, statusNames)}`)
+  if (executions.length < total) {
+    lines.push(`(showing ${executions.length} of ${total} — narrow the ZQL or raise max_results)`)
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Test steps: number, action, test data, expected result.
+ *
+ * @param {{orderId?: number, step?: string, data?: string, result?: string}[]} steps
+ * @returns {string[]}
+ */
+export function formatTestSteps(steps) {
+  if (steps.length === 0) return ['', 'STEPS: none']
+  const lines = ['', `STEPS (${steps.length}):`]
+  steps.forEach((s, index) => {
+    lines.push(`${s.orderId ?? index + 1}. ${String(s.step ?? '').trim() || '(empty)'}`)
+    if (String(s.data ?? '').trim()) lines.push(`   Data: ${String(s.data).trim().replaceAll('\n', '\n   ')}`)
+    if (String(s.result ?? '').trim()) lines.push(`   Expected: ${String(s.result).trim().replaceAll('\n', '\n   ')}`)
+  })
+  return lines
+}
+
+/**
+ * One test cycle line: id, name, version, environment, build, dates, progress.
+ *
+ * @param {object} cycle - cycle object with numeric `id`
+ * @param {{executed: number, total: number, folders: number}} totals
+ * @returns {string}
+ */
+export function formatCycleLine(cycle, { executed, total, folders }) {
+  const parts = [`#${cycle.id} ${cycle.name ?? '?'}`, `· version: ${cycle.versionName ?? 'Unscheduled'}`]
+  if (cycle.environment) parts.push(`· env: ${cycle.environment}`)
+  if (cycle.build) parts.push(`· build: ${cycle.build}`)
+  if (cycle.startDate || cycle.endDate) parts.push(`· ${cycle.startDate || '?'} → ${cycle.endDate || '?'}`)
+  parts.push(`· executed ${executed}/${total}`)
+  if (folders) parts.push(`· folders: ${folders}`)
+  return parts.join(' ')
+}

@@ -43,6 +43,7 @@ test('create_issue: subtask role + parent → resolves the sub-task type and set
     },
   })
   const result = await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'subtask', summary: 'Config for iOS', parent: 'proj-10',
   })
   assert.equal(result.isError, undefined)
@@ -59,6 +60,7 @@ test('create_issue: parent on a non-sub-task type is refused, listing the sub-ta
     },
   })
   const result = await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'Story', summary: 'Story with a parent', parent: 'PROJ-10',
   })
   assert.equal(result.isError, true)
@@ -71,7 +73,7 @@ test('create_issue: a sub-task type without a parent is refused', async () => {
   const tools = setup({
     client: { getProject: async () => TYPES_WITH_SUBTASK, createIssue: async () => ({ key: 'PROJ-1' }) },
   })
-  const result = await tools.get('create_issue').handler({ project: 'PROJ', issue_type: 'Sub-task', summary: 'Orphan sub-task' })
+  const result = await tools.get('create_issue').handler({ backlog: true, project: 'PROJ', issue_type: 'Sub-task', summary: 'Orphan sub-task' })
   assert.equal(result.isError, true)
   assert.match(result.content[0].text, /requires a parent/)
 })
@@ -85,6 +87,7 @@ test('create_issue: a parent that is itself a sub-task is refused', async () => 
     },
   })
   const result = await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'subtask', summary: 'Nested sub-task', parent: 'PROJ-10',
   })
   assert.equal(result.isError, true)
@@ -103,7 +106,7 @@ test('create_issue: epic role sets Epic Name (defaults to the summary) via the g
       createIssue: async (_config, fields) => { sent = fields; return { key: 'PROJ-100' } },
     },
   })
-  await tools.get('create_issue').handler({ project: 'PROJ', issue_type: 'epic', summary: 'Login overhaul' })
+  await tools.get('create_issue').handler({ backlog: true, project: 'PROJ', issue_type: 'epic', summary: 'Login overhaul' })
   assert.equal(sent.issuetype.name, 'Epic')
   assert.equal(sent.customfield_10004, 'Login overhaul')
 })
@@ -117,7 +120,7 @@ test('create_issue: explicit epic_name wins over the summary', async () => {
       createIssue: async (_config, fields) => { sent = fields; return { key: 'PROJ-100' } },
     },
   })
-  await tools.get('create_issue').handler({ project: 'PROJ', issue_type: 'Epic', summary: 'Login overhaul', epic_name: 'LOGIN' })
+  await tools.get('create_issue').handler({ backlog: true, project: 'PROJ', issue_type: 'Epic', summary: 'Login overhaul', epic_name: 'LOGIN' })
   assert.equal(sent.customfield_10004, 'LOGIN')
 })
 
@@ -130,7 +133,7 @@ test('create_issue: a role maps through the profile issueTypeRoles to a localise
       createIssue: async (_config, fields) => { sent = fields; return { key: 'PROJ-5' } },
     },
   })
-  await tools.get('create_issue').handler({ project: 'PROJ', issue_type: 'story', summary: 'Mapped story type' })
+  await tools.get('create_issue').handler({ backlog: true, project: 'PROJ', issue_type: 'story', summary: 'Mapped story type' })
   assert.equal(sent.issuetype.name, 'StoryLocal')
   assert.equal(sent.customfield_10004, undefined, 'a story must not get an Epic Name')
 })
@@ -147,7 +150,7 @@ test('create_issue: story_points resolves the field by NAME only, never by a gen
       createIssue: async (_config, fields) => { sent = fields; return { key: 'PROJ-1' } },
     },
   })
-  await tools.get('create_issue').handler({ project: 'PROJ', issue_type: 'Story', summary: 'Pointed story', story_points: 5 })
+  await tools.get('create_issue').handler({ backlog: true, project: 'PROJ', issue_type: 'Story', summary: 'Pointed story', story_points: 5 })
   assert.equal(sent.customfield_10006, 5)
   assert.equal(sent.customfield_777, undefined)
 })
@@ -156,10 +159,12 @@ test('create_issue: description is converted from Markdown to wiki markup unless
   const sent = []
   const tools = setup({ client: { createIssue: async (_config, fields) => { sent.push(fields); return { key: 'PROJ-1' } } } })
   await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'Task', summary: 'Markdown body', description: '## Steps\n- **bold** item',
   })
   assert.equal(sent[0].description, 'h2. Steps\n* *bold* item')
   await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'Task', summary: 'Wiki body kept', description: 'h2. Steps\n* *bold* item', description_format: 'wiki',
   })
   assert.equal(sent[1].description, 'h2. Steps\n* *bold* item')
@@ -175,7 +180,7 @@ test('create_issue: duplicate guard is scoped to the parent for sub-tasks (P3)',
       createIssue: async () => ({ key: 'PROJ-11' }),
     },
   })
-  await tools.get('create_issue').handler({ project: 'PROJ', issue_type: 'subtask', summary: 'Config', parent: 'PROJ-10' })
+  await tools.get('create_issue').handler({ backlog: true, project: 'PROJ', issue_type: 'subtask', summary: 'Config', parent: 'PROJ-10' })
   assert.match(jqls[0], /project = PROJ/)
   assert.match(jqls[0], /parent = PROJ-10/)
 })
@@ -198,9 +203,9 @@ test('create_issues: one bulk POST, keys mapped in order, per-item errors report
   const result = await tools.get('create_issues').handler({
     project: 'proj',
     items: [
-      { issue_type: 'Story', summary: 'First story' },
-      { issue_type: 'Story', summary: 'Second story' },
-      { issue_type: 'Story', summary: 'Third story' },
+      { backlog: true, issue_type: 'Story', summary: 'First story' },
+      { backlog: true, issue_type: 'Story', summary: 'Second story' },
+      { backlog: true, issue_type: 'Story', summary: 'Third story' },
     ],
   })
   assert.equal(result.isError, undefined)
@@ -224,9 +229,9 @@ test('create_issues: refuses the whole batch up front when it does not fit the b
   const result = await tools.get('create_issues').handler({
     project: 'PROJ',
     items: [
-      { issue_type: 'Task', summary: 'Task number one' },
-      { issue_type: 'Task', summary: 'Task number two' },
-      { issue_type: 'Task', summary: 'Task number three' },
+      { backlog: true, issue_type: 'Task', summary: 'Task number one' },
+      { backlog: true, issue_type: 'Task', summary: 'Task number two' },
+      { backlog: true, issue_type: 'Task', summary: 'Task number three' },
     ],
   })
   assert.equal(result.isError, true)
@@ -240,7 +245,7 @@ test('create_issues: repeating a title within the batch (same parent) is refused
   const tools = setup({ client: { createIssuesBulk: async () => { called = true; return { issues: [], errors: [] } } } })
   const result = await tools.get('create_issues').handler({
     project: 'PROJ',
-    items: [{ issue_type: 'Task', summary: 'Same title' }, { issue_type: 'Task', summary: 'same  title' }],
+    items: [{ backlog: true, issue_type: 'Task', summary: 'Same title' }, { backlog: true, issue_type: 'Task', summary: 'same  title' }],
   })
   assert.equal(result.isError, true)
   assert.match(result.content[0].text, /repeats an earlier item/)

@@ -16,7 +16,10 @@ const CONFIG = {
 }
 
 /** No duplicates anywhere, unless a test overrides searchIssues. */
-const NO_DUPLICATES = { searchIssues: async () => ({ issues: [], total: 0, startAt: 0 }) }
+const NO_DUPLICATES = {
+  searchIssues: async () => ({ issues: [], total: 0, startAt: 0 }),
+  getProjectProperty: async () => null,
+}
 
 beforeEach(() => resetWriteBudget())
 
@@ -32,7 +35,7 @@ function setup({ client = {}, config = CONFIG } = {}) {
 
 test('all write tools are registered (no write-mode gate)', () => {
   const tools = setup()
-  for (const name of ['create_issue', 'create_issues', 'update_issue', 'add_comment', 'add_attachment', 'transition_issue', 'assign_to_epic', 'link_issues', 'create_sprint']) {
+  for (const name of ['create_issue', 'create_issues', 'update_issue', 'add_comment', 'add_attachment', 'transition_issue', 'assign_to_epic', 'link_issues', 'create_sprint', 'set_project_rules', 'create_test_cases', 'add_test_steps', 'create_test_cycle', 'add_tests_to_cycle', 'set_execution_status']) {
     assert.ok(tools.has(name), `${name} should be registered`)
   }
 })
@@ -45,6 +48,7 @@ test('create_issue: builds correct POST fields, always adds ai-generated', async
     client: { createIssue: async (_config, fields) => { sent = fields; return { key: 'PROJ-100' } } },
   })
   const result = await tools.get('create_issue').handler({
+    backlog: true,
     project: 'proj',
     issue_type: 'Task',
     summary: 'Logout flow on iOS',
@@ -74,6 +78,7 @@ test('create_issue: ai-generated added once even if caller passed it', async () 
     client: { createIssue: async (_config, fields) => { sent = fields; return { key: 'PROJ-1' } } },
   })
   await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'Task', summary: 'Fresh item', labels: ['ai-generated', 'x'],
   })
   assert.deepEqual(sent.labels, ['ai-generated', 'x'])
@@ -89,6 +94,7 @@ test('create_issue: epic link field discovered via listFields when no profile', 
     },
   })
   await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'Task', summary: 'Some new work', epic_key: 'PROJ-1',
   })
   assert.equal(sent.customfield_777, 'PROJ-1')
@@ -118,6 +124,7 @@ test('create_issue: refuses an open duplicate and returns the existing key', asy
     },
   })
   const result = await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'Task', summary: 'Logout flow on iOS',
   })
   assert.equal(result.isError, true)
@@ -137,6 +144,7 @@ test('create_issue: bracketed titles survive the duplicate check', async () => {
     },
   })
   const result = await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'Task', summary: '[iOS] User logout',
   })
   assert.ok(!jqlUsed.includes('['), `JQL operand must not contain "[", got: ${jqlUsed}`)
@@ -152,6 +160,7 @@ test('create_issue: a failing duplicate CHECK does not block creation', async ()
     },
   })
   const result = await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'Task', summary: 'Brand new item',
   })
   assert.equal(result.isError, undefined)
@@ -166,6 +175,7 @@ test('create_issue: allow_duplicate=true bypasses the duplicate guard', async ()
     },
   })
   const result = await tools.get('create_issue').handler({
+    backlog: true,
     project: 'PROJ', issue_type: 'Task', summary: 'Logout flow on iOS', allow_duplicate: true,
   })
   assert.equal(result.isError, undefined)
@@ -490,7 +500,7 @@ test('transition_issue: unknown name lists the available transitions and does no
 test('budget: creates limit stops further create_issue calls', async () => {
   const config = { ...CONFIG, writeBudget: { creates: 2, total: 30 } }
   const tools = setup({ config, client: { createIssue: async () => ({ key: 'PROJ-1' }) } })
-  const create = (n) => tools.get('create_issue').handler({ project: 'PROJ', issue_type: 'Task', summary: `Unique ticket ${n}` })
+  const create = (n) => tools.get('create_issue').handler({ backlog: true, project: 'PROJ', issue_type: 'Task', summary: `Unique ticket ${n}` })
   assert.equal((await create(1)).isError, undefined)
   assert.equal((await create(2)).isError, undefined)
   const third = await create(3)

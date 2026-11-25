@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { JiraError, debug } from './jira-client.mjs'
 import { getProjectProfile } from './config.mjs'
 import { markdownToWiki } from './wiki-markup.mjs'
+import { componentsForAssignee, mergeComponents } from './project-rules.mjs'
 
 // --- custom fields -----------------------------------------------------------
 
@@ -126,6 +127,23 @@ export function isEpicType(config, project, typeName, requested) {
 }
 
 /**
+ * Whether a type is a bug: the `bug` role, the profile's mapped bug name, or
+ * a name that looks like one.
+ *
+ * @param {object} config
+ * @param {string} project
+ * @param {string} typeName - resolved type name
+ * @param {string} requested - what the caller passed
+ * @returns {boolean}
+ */
+export function isBugType(config, project, typeName, requested) {
+  if (String(requested).trim().toLowerCase() === 'bug') return true
+  const mapped = getProjectProfile(config, project).issueTypeRoles?.bug
+  if (mapped && String(mapped).toLowerCase() === String(typeName).toLowerCase()) return true
+  return ROLE_PATTERNS.bug.test(String(typeName))
+}
+
+/**
  * Propose a role → type-name map for a project profile. Best-effort: the
  * user confirms or completes it in /jira-config, which is what makes localised
  * instances reliable without any localised word in this code.
@@ -168,9 +186,97 @@ export const ISSUE_ITEM_INPUT = {
   parent: z.string().optional().describe('Parent issue key, required for a sub-task type, e.g. "PROJ-42"'),
   story_points: z.number().optional().describe('Story Points'),
   sprint_id: z.number().int().optional()
-    .describe('Sprint id to place the issue in (find it via get_active_sprint); omit for backlog'),
+    .describe('Sprint id (from get_active_sprint) when the user chose the sprint'),
+  backlog: z.boolean().optional().describe(
+    'Set true when the user chose the backlog. A new issue other than an epic or a sub-task needs '
+    + 'sprint_id or backlog=true: ask the user, never choose for them',
+  ),
+  steps_to_reproduce: z.array(z.string()).optional()
+    .describe('Bug (standard template): the steps to reproduce, one per item'),
+  actual_result: z.string().optional().describe('Bug (standard template): what happens now'),
+  expected_result: z.string().optional().describe('Bug (standard template): what should happen'),
+  custom_template: z.boolean().optional().describe(
+    'Bug: set true ONLY when the user explicitly asked for a template other than the standard one; '
+    + 'the description is then used as written',
+  ),
   allow_duplicate: z.boolean().optional()
     .describe('Set true ONLY when the user explicitly confirmed creating a near-duplicate'),
+}
+
+// --- standard bug template and create rails ------------------------------------
+
+/** Text for a template section the user deliberately skipped. */
+export const TO_BE_FILLED = '(to be filled in)'
+
+/** A bug title starts with a bracketed label: "[label] title". */
+const BUG_TITLE = /^\[[^\]]+\]\s*\S/
+
+/**
+ * @param {object} args
+ * @returns {boolean}
+ */
+function hasBugFields(args) {
+  return Boolean(args.steps_to_reproduce?.length || args.actual_result?.trim() || args.expected_result?.trim())
+}
+
+/**
+ * The standard bug description in Jira wiki markup: bold section headers,
+ * a blank line before each section, the steps as a numbered list. A skipped
+ * section gets TO_BE_FILLED.
+ *
+ * @param {{steps_to_reproduce?: string[], actual_result?: string, expected_result?: string}} args
+ * @returns {string}
+ */
+export function bugDescription({ steps_to_reproduce: steps = [], actual_result: actual, expected_result: expected }) {
+  const stepLines = steps
+    .map((step) => String(step).replace(/^\s*\d+[.)]\s*/, '').trim())
+    .filter(Boolean)
+    .map((step) => `# ${markdownToWiki(step)}`)
+  const text = (value) => (value?.trim() ? markdownToWiki(value.trim()) : TO_BE_FILLED)
+  return [
+    `*Steps to reproduce:*\n${stepLines.length ? stepLines.join('\n') : TO_BE_FILLED}`,
+    `*Actual result:*\n${text(actual)}`,
+    `*Expected result:*\n${text(expected)}`,
+  ].join('\n\n')
+}
+
+/**
+ * Rails for NEW issues (create_issue, create_issues), checked before any
+ * write: the user's sprint choice (epics and sub-tasks are exempt) and the
+ * standard bug template ("[label] title" + the three sections).
+ *
+ * @param {object} args - per-issue arguments (see ISSUE_ITEM_INPUT)
+ * @param {{config: object, project: string, projectTypes: {name: string, subtask: boolean}[]}} ctx
+ * @returns {string|null} why the issue is refused, or null
+ */
+export function createRailError(args, { config, project, projectTypes }) {
+  const requestedType = args.issue_type.trim()
+  const resolved = resolveIssueType(config, project, projectTypes, requestedType)
+  const typeName = resolved?.name ?? requestedType
+  const subtask = resolved ? resolved.subtask : requestedType.toLowerCase() === 'subtask'
+
+  if (!subtask && !isEpicType(config, project, typeName, requestedType)) {
+    if (args.sprint_id !== undefined && args.backlog) {
+      return 'sprint_id and backlog=true contradict each other. Pass only one of them.'
+    }
+    if (args.sprint_id === undefined && !args.backlog) {
+      return 'ask the user first: the active sprint or the backlog? Then pass sprint_id (from '
+        + 'get_active_sprint) or backlog=true. Never choose for the user.'
+    }
+  }
+
+  if (isBugType(config, project, typeName, requestedType) && !args.custom_template) {
+    if (!hasBugFields(args)) {
+      return 'a bug uses the standard bug template. Pass steps_to_reproduce, actual_result and '
+        + `expected_result, and ask the user for the missing ones (a skipped one becomes "${TO_BE_FILLED}"). `
+        + 'Only when the user asked for another template, set custom_template=true and pass the description.'
+    }
+    if (!BUG_TITLE.test(args.summary.trim())) {
+      return 'a bug title follows "[label] title", e.g. "[Web] Save button does nothing". '
+        + 'Ask the user for the label when it is not clear.'
+    }
+  }
+  return null
 }
 
 // --- fields builder ----------------------------------------------------------
@@ -178,13 +284,16 @@ export const ISSUE_ITEM_INPUT = {
 /**
  * Build the Jira fields payload for ONE issue. Applies, in code: role-based
  * type resolution, sub-task/parent validation (B1), Epic Name (B2), Story
- * Points (P1), Markdown → wiki (P2) and the always-on `ai-generated` label.
+ * Points (P1), Markdown → wiki (P2), the standard bug description (when the
+ * bug fields are given, with any description added below it), the project's
+ * shared "assignee → component" rules (§5.2) and the always-on
+ * `ai-generated` label.
  *
  * @param {object} args - per-issue arguments (see ISSUE_ITEM_INPUT)
- * @param {{config: object, client: object, project: string, projectTypes: {name: string, subtask: boolean}[]}} ctx
- * @returns {Promise<{fields: object, summary: string, typeName: string, parentKey: string|undefined}>}
+ * @param {{config: object, client: object, project: string, projectTypes: {name: string, subtask: boolean}[], componentRules?: object[]}} ctx
+ * @returns {Promise<{fields: object, summary: string, typeName: string, parentKey: string|undefined, ruleComponents: string[]}>}
  */
-export async function buildIssueFields(args, { config, client, project, projectTypes }) {
+export async function buildIssueFields(args, { config, client, project, projectTypes, componentRules = [] }) {
   const summary = args.summary.trim()
   const requestedType = args.issue_type.trim()
   const resolvedType = resolveIssueType(config, project, projectTypes, requestedType)
@@ -216,10 +325,16 @@ export async function buildIssueFields(args, { config, client, project, projectT
     summary,
   }
   if (parentKey) fields.parent = { key: parentKey }
-  if (args.description) {
-    fields.description = args.description_format === 'wiki' ? args.description : markdownToWiki(args.description)
-  }
-  if (args.components?.length) fields.components = args.components.map((name) => ({ name }))
+  const notes = args.description
+    ? (args.description_format === 'wiki' ? args.description : markdownToWiki(args.description))
+    : ''
+  const description = [hasBugFields(args) ? bugDescription(args) : '', notes].filter(Boolean).join('\n\n')
+  if (description) fields.description = description
+  const { list: components, added: ruleComponents } = mergeComponents(
+    args.components ?? [],
+    componentsForAssignee(componentRules, { assignee: args.assignee, issueType: typeName }),
+  )
+  if (components.length) fields.components = components.map((name) => ({ name }))
   // AI transparency (enforced in code, always on): every agent-created issue
   // gets a filterable `ai-generated` label.
   const labels = [...(args.labels ?? [])]
@@ -240,5 +355,5 @@ export async function buildIssueFields(args, { config, client, project, projectT
     fields[await resolveField(config, client, project, STORY_POINTS_FIELD)] = args.story_points
   }
 
-  return { fields, summary, typeName, parentKey }
+  return { fields, summary, typeName, parentKey, ruleComponents }
 }

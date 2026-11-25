@@ -30,6 +30,6 @@ You collect and organize what the user said. **Do not add justifications, exampl
    Plugin version: <from .claude-plugin/plugin.json in the plugin directory, if available — otherwise skip>
    ```
 
-4. **Optional ticket** — ONLY when the user explicitly asks to file it as a Jira ticket AND write tools are available: follow the standard flow — full dry-run preview, explicit confirmation, then ONE `create_issue` to the project the user names. No exceptions to the preview→confirm rule for "internal" tickets. (The server adds the `ai-generated` label automatically.)
+4. **Optional ticket** — ONLY when the user explicitly asks to file it as a Jira ticket AND write tools are available: follow the standard flow of `/jira-tools:create-task` — full dry-run preview, explicit confirmation with the "active sprint or backlog?" question, then ONE `create_issue` to the project the user names. No exceptions to the preview→confirm rule for "internal" tickets. (The server adds the `ai-generated` label automatically.)
 
 Never send anything anywhere yourself — the Slack message is handed to the user to paste.
