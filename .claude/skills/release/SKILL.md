@@ -79,16 +79,18 @@ Build the Slack message in Polish from the release note. Use Slack formatting (`
 - A bold "Claude Desktop:" label with "file attached, or ask Claude: update jira-tools", then the `{desktop_guide}` placeholder on the next line.
 - A bold "Claude Code:" label with the repository link `https://github.com/magic-lewko/magic-jira-mcp`, then the `{code_guide}` placeholder on the next line.
 
-Leave the placeholders as they are. The script fills them with the install guide links from `.env.local`. Preview the final message:
+Leave the placeholders as they are. The script fills them with the install guide links from `.env.local`.
+
+Call `node` directly from the Bash tool. Do not use `npm run release:slack` on Windows: npm runs the script through `cmd.exe`, which cuts a multi-line message at the first line break and drops `--dry-run`, so it posts at once (this happened in 0.9.0). Write the message to a file outside the repo first, then preview the final message:
 
 ```text
-npm run release:slack -- "<message>" --dry-run
+node scripts/slack-release.mjs "$(cat <message-file>)" --dry-run
 ```
 
 Show the preview to the user. After the user approves it, post the `.mcpb` with the message to the team channel:
 
 ```text
-npm run release:slack -- "<message>"
+node scripts/slack-release.mjs "$(cat <message-file>)"
 ```
 
 The script reads `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`, `SLACK_DESKTOP_GUIDE_URL`, and `SLACK_CODE_GUIDE_URL` from `.env.local`. On `not_in_channel`, ask the user to run `/invite @jira-tools-release` in the channel.
